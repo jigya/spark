@@ -44,6 +44,7 @@ class LBFGS(private var gradient: Gradient, private var updater: Updater)
   private var convergenceTol = 1E-6
   private var maxNumIterations = 100
   private var regParam = 0.0
+  private var regParams: Double* = null
 
   /**
    * Set the number of corrections used in the LBFGS update. Default 10.
@@ -105,11 +106,19 @@ class LBFGS(private var gradient: Gradient, private var updater: Updater)
     this
   }
 
+  def setRegParams(regParams: *Double): this.type = {
+    this.regParams = regParams
+    this
+  }
   /**
    * Get the regularization parameter.
    */
   private[mllib] def getRegParam(): Double = {
     this.regParam
+  }
+
+  private[mllib] def getRegParams(): Double* = {
+    this.regParams
   }
 
   /**
