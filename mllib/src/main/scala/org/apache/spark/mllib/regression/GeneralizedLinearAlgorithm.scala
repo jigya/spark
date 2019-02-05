@@ -224,6 +224,19 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
     }
   }
 
+  protected def generateInitialWeights(input: RDD[LabeledPoint], regParamsCnt: Int): Vector = {
+    if (numFeatures < 0) {
+      numFeatures = input.map(_.features.size).first()
+    }
+    if (numOfLinearPredictor == 1) {
+      Vectors.zeros(regParamsCnt * numFeatures)
+    } else if (addIntercept) {
+      Vectors.zeros(regParamsCnt * (numFeatures + 1) * numOfLinearPredictor)
+    } else {
+      Vectors.zeros(regParamsCnt * numFeatures * numOfLinearPredictor)
+    }
+  }
+
   /**
    * Run the algorithm with the configured parameters on an input
    * RDD of LabeledPoint entries.

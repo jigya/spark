@@ -404,7 +404,12 @@ class LogisticRegressionWithLBFGS
    * If using ml implementation, uses ml code to generate initial weights.
    */
   override def run(input: RDD[LabeledPoint]): LogisticRegressionModel = {
-    run(input, generateInitialWeights(input), userSuppliedWeights = false)
+    if (optimizer.getRegParams() != null) {
+      run(input, generateInitialWeights(input, optimizer.getRegParams().size),
+        userSuppliedWeights = false)
+    } else {
+      run(input, generateInitialWeights(input), userSuppliedWeights = false)
+    }
   }
 
   /**
@@ -429,6 +434,7 @@ class LogisticRegressionWithLBFGS
       LogisticRegressionModel = {
     // ml's Logistic regression only supports binary classification currently.
     if (numOfLinearPredictor == 1) {
+      // TODO: ml.classification.LogisticRegression called at Binary classification
       def runWithMlLogisticRegression(elasticNetParam: Double) = {
         // Prepare the ml LogisticRegression based on our settings
         val lr = new org.apache.spark.ml.classification.LogisticRegression()
