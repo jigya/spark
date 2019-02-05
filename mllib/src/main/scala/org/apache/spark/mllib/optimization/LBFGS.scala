@@ -24,7 +24,7 @@ import breeze.optimize.{CachedDiffFunction, DiffFunction, LBFGS => BreezeLBFGS}
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
-import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors}
 import org.apache.spark.mllib.linalg.BLAS.axpy
 import org.apache.spark.rdd.RDD
 
@@ -44,7 +44,7 @@ class LBFGS(private var gradient: Gradient, private var updater: Updater)
   private var convergenceTol = 1E-6
   private var maxNumIterations = 100
   private var regParam = 0.0
-  private var regParams: Double* = null
+  private var regParams : Vector = null
 
   /**
    * Set the number of corrections used in the LBFGS update. Default 10.
@@ -106,8 +106,8 @@ class LBFGS(private var gradient: Gradient, private var updater: Updater)
     this
   }
 
-  def setRegParams(regParams: *Double): this.type = {
-    this.regParams = regParams
+  def setRegParams(regParams: Double*): this.type = {
+    this.regParams = Vectors.dense(regParams.toArray)
     this
   }
   /**
@@ -117,7 +117,7 @@ class LBFGS(private var gradient: Gradient, private var updater: Updater)
     this.regParam
   }
 
-  private[mllib] def getRegParams(): Double* = {
+  private[mllib] def getRegParams(): Vector = {
     this.regParams
   }
 
