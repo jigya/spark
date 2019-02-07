@@ -250,20 +250,22 @@ object LBFGS extends Logging {
       val bcW = data.context.broadcast(w)
       val localGradient = gradient
 
-      val seqOp = (c: (Vector, Double), v: (Double, Vector)) =>
+      val seqOp = (c: (Vector, Vector), v: (Double, Vector)) =>
         (c, v) match {
           case ((grad, loss), (label, features)) =>
             val denseGrad = grad.toDense
             val l = localGradient.compute(features, label, bcW.value, denseGrad)
-            (denseGrad, loss + l)
+            axpy(1.0, l, loss)
+            (denseGrad, loss)
         }
 
-      val combOp = (c1: (Vector, Double), c2: (Vector, Double)) =>
+      val combOp = (c1: (Vector, Vector), c2: (Vector, Vector)) =>
         (c1, c2) match { case ((grad1, loss1), (grad2, loss2)) =>
           val denseGrad1 = grad1.toDense
           val denseGrad2 = grad2.toDense
           axpy(1.0, denseGrad2, denseGrad1)
-          (denseGrad1, loss1 + loss2)
+          axpy(1.0, loss2, loss1)
+          (denseGrad1, loss1)
        }
 
       val zeroSparseVector = Vectors.sparse(n, Seq.empty)
