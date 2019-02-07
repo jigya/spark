@@ -22,6 +22,7 @@ import org.apache.spark.annotation.{DeveloperApi, Since}
 import org.apache.spark.internal.Logging
 import org.apache.spark.mllib.feature.StandardScaler
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.linalg.{Matrix, Matrices}
 import org.apache.spark.mllib.optimization._
 import org.apache.spark.mllib.util.MLUtils._
 import org.apache.spark.rdd.RDD
@@ -40,8 +41,10 @@ import org.apache.spark.storage.StorageLevel
 @Since("0.8.0")
 @DeveloperApi
 abstract class GeneralizedLinearModel @Since("1.0.0") (
-    @Since("1.0.0") val weights: Vector,
-    @Since("0.8.0") val intercept: Double)
+    val weightMatrix: Matrix = null,
+    val intercept: Vector = null,
+    @Since("1.0.0") val weights: Vector = null,
+    @Since("0.8.0") val intercept: Double = 0.0)
   extends Serializable {
 
   /**
@@ -52,6 +55,8 @@ abstract class GeneralizedLinearModel @Since("1.0.0") (
    * @param intercept Intercept of the model.
    */
   protected def predictPoint(dataMatrix: Vector, weightMatrix: Vector, intercept: Double): Double
+
+  protected def predictPoint(dataMatrix: Matrix, weightMatrix: Matrix, intercept: Vector): Vector
 
   /**
    * Predict values for the given data set using the model trained.
@@ -64,6 +69,16 @@ abstract class GeneralizedLinearModel @Since("1.0.0") (
   def predict(testData: RDD[Vector]): RDD[Double] = {
     // A small optimization to avoid serializing the entire model. Only the weightsMatrix
     // and intercept is needed.
+    if (weightMatrix != null) {
+      val localWeights = weightMatrix
+      val bcWeights = testData.context.braodcast(localWeights)
+      val localIntercept = intercept
+      testData.mapPartitions { iter =>
+        val w = bcWeights
+        iter.map(v => pfedictPoint(v, w, localIntercept))
+      }
+
+    }
     val localWeights = weights
     val bcWeights = testData.context.broadcast(localWeights)
     val localIntercept = intercept
@@ -168,6 +183,8 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
    */
   protected def createModel(weights: Vector, intercept: Double): M
 
+  protected def createModel(weights: Matrix, intercept: Vector): M
+
   /**
    * Get if the algorithm uses addIntercept
    *
@@ -224,16 +241,20 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
     }
   }
 
-  protected def generateInitialWeights(input: RDD[LabeledPoint], regParamsCnt: Int): Vector = {
+  protected def generateInitialWeights(input: RDD[LabeledPoint], regParamsCnt: Int): Matrix = {
     if (numFeatures < 0) {
       numFeatures = input.map(_.features.size).first()
     }
     if (numOfLinearPredictor == 1) {
-      Vectors.zeros(regParamsCnt * numFeatures)
+      Matrices.dense(regParamsCnt, numFeatures,
+        Array.fill(regParamsCnt * numFeatures, 0))
     } else if (addIntercept) {
-      Vectors.zeros(regParamsCnt * (numFeatures + 1) * numOfLinearPredictor)
+      Matrices.dense(regParamsCnt, (numFeatures + 1) * numOfLinearPredictor,
+        Array.fill(regParamCnt * (numFeatures + 1) * numOfLinearPredictor, 0)
     } else {
-      Vectors.zeros(regParamsCnt * numFeatures * numOfLinearPredictor)
+      Mattrices.dense(regParamsCnt, numFeatures * numOfLinearPredictor,
+        Array.fill(regParamCnt * numFeatures * numOfLinearPredictor, 0)
+    )
     }
   }
 
@@ -347,6 +368,10 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
      */
     if (useFeatureScaling) {
       if (numOfLinearPredictor == 1) {
+        // Transform matrix into vectors
+        // call scaler.transform on vectors
+        // Add vectors together into an array
+        //Transform the array back to the matrix
         weights = scaler.transform(weights)
       } else {
         /**
@@ -370,6 +395,147 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
         weights = Vectors.dense(weightsArray)
       }
     }
+
+    // Warn at the end of the run as well, for increased visibility.
+    if (input.getStorageLevel == StorageLevel.NONE) {
+      logWarning("The input data was not directly cached, which may hurt performance if its"
+        + " parent RDDs are also uncached.")
+    }
+
+    // Unpersist cached data
+    if (data.getStorageLevel != StorageLevel.NONE) {
+      data.unpersist(false)
+    }
+
+    createModel(weights, intercept)
+  }
+
+  /**
+   * Run the model on matrix based initialWeights
+   */
+  def run(input: RDD[LabeledPoint], initialWeights: Matrix): M = {
+
+    if (numFeatures < 0) {
+      numFeatures = input.map(_.features.size).first()
+    }
+
+    if (input.getStorageLevel == StorageLevel.NONE) {
+      logWarning("The input data is not directly cached, which may hurt performance if its"
+        + " parent RDDs are also uncached.")
+    }
+
+    // Check the data properties before running the optimizer
+    if (validateData && !validators.forall(func => func(input))) {
+      throw new SparkException("Input validation failed.")
+    }
+
+    /**
+     * Scaling columns to unit variance as a heuristic to reduce the condition number:
+     *
+     * During the optimization process, the convergence (rate) depends on the condition number of
+     * the training dataset. Scaling the variables often reduces this condition number
+     * heuristically, thus improving the convergence rate. Without reducing the condition number,
+     * some training datasets mixing the columns with different scales may not be able to converge.
+     *
+     * GLMNET and LIBSVM packages perform the scaling to reduce the condition number, and return
+     * the weights in the original scale.
+     * See page 9 in http://cran.r-project.org/web/packages/glmnet/glmnet.pdf
+     *
+     * Here, if useFeatureScaling is enabled, we will standardize the training features by dividing
+     * the variance of each column (without subtracting the mean), and train the model in the
+     * scaled space. Then we transform the coefficients from the scaled space to the original scale
+     * as GLMNET and LIBSVM do.
+     *
+     * Currently, it's only enabled in LogisticRegressionWithLBFGS
+     */
+     // TODO(Qingqing): enable FeatureScaling
+    // val scaler = if (useFeatureScaling) {
+    //   new StandardScaler(withStd = true, withMean = false).fit(input.map(_.features))
+    // } else {
+    //   null
+    // }
+    val scaler = null
+
+    // Prepend an extra variable consisting of all 1.0's for the intercept.
+    // TODO: Apply feature scaling to the weight vector instead of input data.
+    val data =
+      if (addIntercept) {
+        if (useFeatureScaling) {
+          input.map(lp => (lp.label, appendBias(scaler.transform(lp.features)))).cache()
+        } else {
+          input.map(lp => (lp.label, appendBias(lp.features))).cache()
+        }
+      } else {
+        if (useFeatureScaling) {
+          input.map(lp => (lp.label, scaler.transform(lp.features))).cache()
+        } else {
+          input.map(lp => (lp.label, lp.features))
+        }
+      }
+
+    /**
+     * TODO: For better convergence, in logistic regression, the intercepts should be computed
+     * from the prior probability distribution of the outcomes; for linear regression,
+     * the intercept should be set as the average of response.
+     */
+     //TODO(Qingqing): fixing appendBias to binary classifications
+    // val initialWeightsWithIntercept = if (addIntercept && numOfLinearPredictor == 1) {
+    //   appendBias(initialWeights)
+    // } else {
+    //   /** If `numOfLinearPredictor > 1`, initialWeights already contains intercepts. */
+    //   initialWeights
+    // }
+    val initialWeightsWithIntercept = initialWeights
+
+    val weightsWithIntercept = optimizer.optimize(data, initialWeightsWithIntercept)
+
+    // val intercept = if (addIntercept && numOfLinearPredictor == 1) {
+    //   weightsWithIntercept(weightsWithIntercept.size - 1)
+    // } else {
+    //   0.0
+    // }
+    val intercept = Vectors.zeros(regParamsCnt)
+
+    // var weights = if (addIntercept && numOfLinearPredictor == 1) {
+    //   Vectors.dense(weightsWithIntercept.toArray.slice(0, weightsWithIntercept.size - 1))
+    // } else {
+    //   weightsWithIntercept
+    // }
+    var weights = weightsWithIntercept
+
+    /**
+     * The weights and intercept are trained in the scaled space; we're converting them back to
+     * the original scale.
+     *
+     * Math shows that if we only perform standardization without subtracting means, the intercept
+     * will not be changed. w_i = w_i' / v_i where w_i' is the coefficient in the scaled space, w_i
+     * is the coefficient in the original space, and v_i is the variance of the column i.
+     */
+    // if (useFeatureScaling) {
+    //   if (numOfLinearPredictor == 1) {
+    //     weights = scaler.transform(weights)
+    //   } else {
+    //     /**
+    //      * For `numOfLinearPredictor > 1`, we have to transform the weights back to the original
+    //      * scale for each set of linear predictor. Note that the intercepts have to be explicitly
+    //      * excluded when `addIntercept == true` since the intercepts are part of weights now.
+    //      */
+    //     var i = 0
+    //     val n = weights.size / numOfLinearPredictor
+    //     val weightsArray = weights.toArray
+    //     while (i < numOfLinearPredictor) {
+    //       val start = i * n
+    //       val end = (i + 1) * n - { if (addIntercept) 1 else 0 }
+
+    //       val partialWeightsArray = scaler.transform(
+    //         Vectors.dense(weightsArray.slice(start, end))).toArray
+
+    //       System.arraycopy(partialWeightsArray, 0, weightsArray, start, partialWeightsArray.length)
+    //       i += 1
+    //     }
+    //     weights = Vectors.dense(weightsArray)
+    //   }
+    // }
 
     // Warn at the end of the run as well, for increased visibility.
     if (input.getStorageLevel == StorageLevel.NONE) {

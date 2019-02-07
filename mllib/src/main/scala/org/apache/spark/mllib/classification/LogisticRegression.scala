@@ -393,6 +393,14 @@ class LogisticRegressionWithLBFGS
     }
   }
 
+  override protected def createModel(weights: Matrix, intercept: Vector) = {
+    if (numOfLinearPredictor == 1) {
+      new LogisticRegressionModel(weights, intercept)
+    } else {
+      new LogisticRegressionModel(weights, intercept, numFeatures, numOfLinearPredictor + 1)
+    }
+  }
+
   /**
    * Run Logistic Regression with the configured parameters on an input RDD
    * of LabeledPoint entries.
