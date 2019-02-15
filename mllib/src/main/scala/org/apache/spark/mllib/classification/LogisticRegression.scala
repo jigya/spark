@@ -22,7 +22,8 @@ import org.apache.spark.annotation.Since
 import org.apache.spark.ml.linalg.DenseMatrix
 import org.apache.spark.ml.util.Identifiable
 import org.apache.spark.mllib.classification.impl.GLMClassificationModel
-import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors}
+import org.apache.spark.mllib.linalg.{DenseVector, Matrix, Vector, Vectors}
+import org.apache.spark.mllib.linalg.BLAS.axpy
 import org.apache.spark.mllib.linalg.BLAS.dot
 import org.apache.spark.mllib.optimization._
 import org.apache.spark.mllib.pmml.PMMLExportable
@@ -46,11 +47,14 @@ import org.apache.spark.storage.StorageLevel
  */
 @Since("0.8.0")
 class LogisticRegressionModel @Since("1.3.0") (
-    @Since("1.0.0") override val weights: Vector,
-    @Since("1.0.0") override val intercept: Double,
+    override val weightMatrix: Matrix = null,
+    override val interceptVector: Vector = null,
+    @Since("1.0.0") override val weights: Vector = null,
+    @Since("1.0.0") override val intercept: Double = 0.0,
     @Since("1.3.0") val numFeatures: Int,
     @Since("1.3.0") val numClasses: Int)
-  extends GeneralizedLinearModel(weights, intercept) with ClassificationModel with Serializable
+  extends GeneralizedLinearModel(weightMatrix, interceptVector, weights, intercept)
+    with ClassificationModel with Serializable
   with Saveable with PMMLExportable {
 
   if (numClasses == 2) {
@@ -136,6 +140,51 @@ class LogisticRegressionModel @Since("1.3.0") (
        * with maximum probability, remember to subtract the maxMargin from margins if maxMargin
        * is positive to prevent overflow.
        */
+      var bestClass = 0
+      var maxMargin = 0.0
+      val withBias = dataMatrix.size + 1 == dataWithBiasSize
+      (0 until numClasses - 1).foreach { i =>
+        var margin = 0.0
+        dataMatrix.foreachActive { (index, value) =>
+          if (value != 0.0) margin += value * weightsArray((i * dataWithBiasSize) + index)
+        }
+        // Intercept is required to be added into margin.
+        if (withBias) {
+          margin += weightsArray((i * dataWithBiasSize) + dataMatrix.size)
+        }
+        if (margin > maxMargin) {
+          maxMargin = margin
+          bestClass = i + 1
+        }
+      }
+      bestClass.toDouble
+    }
+  }
+
+  override protected def predictPoint(
+    dataMatrix: Vector,
+    weightMatrix: Matrix,
+    intercept: Vector) = {
+    require(dataMatrix.size == numFeatures)
+
+    // If dataMatrix and weightMatrix have the same dimension, it's binary logistic regression.
+    if (numClasses == 2) {
+      val margin = weightMatrix.multiply(dataMatrix)
+      axpy(1.0, intercept, margin)
+      val score = 1.0 / (1.0 + math.exp(-margin))
+      threshold match {
+        case Some(t) => if (score > t) 1.0 else 0.0
+        case None => score
+      }
+    } else {
+      /**
+        * Compute and find the one with maximum margins. If the maxMargin is negative, then the
+        * prediction result will be the first class.
+        *
+        * PS, if you want to compute the probabilities for each outcome instead of the outcome
+        * with maximum probability, remember to subtract the maxMargin from margins if maxMargin
+        * is positive to prevent overflow.
+        */
       var bestClass = 0
       var maxMargin = 0.0
       val withBias = dataMatrix.size + 1 == dataWithBiasSize

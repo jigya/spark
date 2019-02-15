@@ -22,7 +22,7 @@ import org.apache.spark.annotation.{DeveloperApi, Since}
 import org.apache.spark.internal.Logging
 import org.apache.spark.mllib.feature.StandardScaler
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
-import org.apache.spark.mllib.linalg.{Matrix, Matrices}
+import org.apache.spark.mllib.linalg.{Matrices, Matrix}
 import org.apache.spark.mllib.optimization._
 import org.apache.spark.mllib.util.MLUtils._
 import org.apache.spark.rdd.RDD
@@ -42,7 +42,7 @@ import org.apache.spark.storage.StorageLevel
 @DeveloperApi
 abstract class GeneralizedLinearModel @Since("1.0.0") (
     val weightMatrix: Matrix = null,
-    val intercept: Vector = null,
+    val interceptVector: Vector = null,
     @Since("1.0.0") val weights: Vector = null,
     @Since("0.8.0") val intercept: Double = 0.0)
   extends Serializable {
@@ -56,7 +56,7 @@ abstract class GeneralizedLinearModel @Since("1.0.0") (
    */
   protected def predictPoint(dataMatrix: Vector, weightMatrix: Vector, intercept: Double): Double
 
-  protected def predictPoint(dataMatrix: Matrix, weightMatrix: Matrix, intercept: Vector): Vector
+  protected def predictPoint(dataMatrix: Vector, weightMatrix: Matrix, intercept: Vector): Vector
 
   /**
    * Predict values for the given data set using the model trained.
@@ -71,11 +71,11 @@ abstract class GeneralizedLinearModel @Since("1.0.0") (
     // and intercept is needed.
     if (weightMatrix != null) {
       val localWeights = weightMatrix
-      val bcWeights = testData.context.braodcast(localWeights)
-      val localIntercept = intercept
+      val bcWeights = testData.context.broadcast(localWeights)
+      val localIntercept = interceptVector
       testData.mapPartitions { iter =>
-        val w = bcWeights
-        iter.map(v => pfedictPoint(v, w, localIntercept))
+        val w = bcWeights.value
+        iter.map(v => predictPoint(v, w, localIntercept))
       }
 
     }
@@ -247,14 +247,13 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
     }
     if (numOfLinearPredictor == 1) {
       Matrices.dense(regParamsCnt, numFeatures,
-        Array.fill(regParamsCnt * numFeatures, 0))
+        new Array[Double](regParamsCnt * numFeatures))
     } else if (addIntercept) {
       Matrices.dense(regParamsCnt, (numFeatures + 1) * numOfLinearPredictor,
-        Array.fill(regParamCnt * (numFeatures + 1) * numOfLinearPredictor, 0)
+        new Array[Double](regParamsCnt * (numFeatures + 1) * numOfLinearPredictor))
     } else {
-      Mattrices.dense(regParamsCnt, numFeatures * numOfLinearPredictor,
-        Array.fill(regParamCnt * numFeatures * numOfLinearPredictor, 0)
-    )
+      Matrices.dense(regParamsCnt, numFeatures * numOfLinearPredictor,
+        new Array[Double](regParamsCnt * numFeatures * numOfLinearPredictor))
     }
   }
 
@@ -368,10 +367,6 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
      */
     if (useFeatureScaling) {
       if (numOfLinearPredictor == 1) {
-        // Transform matrix into vectors
-        // call scaler.transform on vectors
-        // Add vectors together into an array
-        //Transform the array back to the matrix
         weights = scaler.transform(weights)
       } else {
         /**
@@ -449,12 +444,11 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
      * Currently, it's only enabled in LogisticRegressionWithLBFGS
      */
      // TODO(Qingqing): enable FeatureScaling
-    // val scaler = if (useFeatureScaling) {
-    //   new StandardScaler(withStd = true, withMean = false).fit(input.map(_.features))
-    // } else {
-    //   null
-    // }
-    val scaler = null
+     val scaler = if (useFeatureScaling) {
+       new StandardScaler(withStd = true, withMean = false).fit(input.map(_.features))
+     } else {
+       null
+     }
 
     // Prepend an extra variable consisting of all 1.0's for the intercept.
     // TODO: Apply feature scaling to the weight vector instead of input data.
@@ -478,7 +472,7 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
      * from the prior probability distribution of the outcomes; for linear regression,
      * the intercept should be set as the average of response.
      */
-     //TODO(Qingqing): fixing appendBias to binary classifications
+    // TODO(Qingqing): fixing appendBias to binary classifications
     // val initialWeightsWithIntercept = if (addIntercept && numOfLinearPredictor == 1) {
     //   appendBias(initialWeights)
     // } else {
@@ -494,7 +488,7 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
     // } else {
     //   0.0
     // }
-    val intercept = Vectors.zeros(regParamsCnt)
+    val intercept = Vectors.zeros(weightsWithIntercept.numRows)
 
     // var weights = if (addIntercept && numOfLinearPredictor == 1) {
     //   Vectors.dense(weightsWithIntercept.toArray.slice(0, weightsWithIntercept.size - 1))
@@ -513,6 +507,10 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
      */
     // if (useFeatureScaling) {
     //   if (numOfLinearPredictor == 1) {
+    // // Transform matrix into vectors
+    // // call scaler.transform on vectors
+    // // Add vectors together into an array
+    // // Transform the array back to the matrix
     //     weights = scaler.transform(weights)
     //   } else {
     //     /**
@@ -530,7 +528,8 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
     //       val partialWeightsArray = scaler.transform(
     //         Vectors.dense(weightsArray.slice(start, end))).toArray
 
-    //       System.arraycopy(partialWeightsArray, 0, weightsArray, start, partialWeightsArray.length)
+    //       System.arraycopy(partialWeightsArray, 0, weightsArray,
+    //       start, partialWeightsArray.length)
     //       i += 1
     //     }
     //     weights = Vectors.dense(weightsArray)
