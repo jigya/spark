@@ -17,6 +17,9 @@
 
 package org.apache.spark.mllib.classification
 
+import breeze.linalg._
+import breeze.numerics._
+
 import org.apache.spark.SparkContext
 import org.apache.spark.annotation.Since
 import org.apache.spark.ml.linalg.DenseMatrix
@@ -171,10 +174,11 @@ class LogisticRegressionModel @Since("1.3.0") (
     if (numClasses == 2) {
       val margin = weightMatrix.multiply(dataMatrix)
       axpy(1.0, intercept, margin)
-      val score = 1.0 / (1.0 + math.exp(-margin))
+      val marginBDV = margin.asBreeze.toDenseVector
+      val score = sigmoid(marginBDV)
       threshold match {
-        case Some(t) => if (score > t) 1.0 else 0.0
-        case None => score
+        case Some(t) => Vectors.fromBreeze(marginBDV.map(e => if (e > t) 1.0 else 0.0))
+        case None => Vectors.fromBreeze(score)
       }
     } else {
       /**
@@ -185,24 +189,33 @@ class LogisticRegressionModel @Since("1.3.0") (
         * with maximum probability, remember to subtract the maxMargin from margins if maxMargin
         * is positive to prevent overflow.
         */
-      var bestClass = 0
-      var maxMargin = 0.0
+      var bestClass = Vectors.dense(new Array[Double](weightMatrix.numRows))
+      var maxMargin = Vectors.dense(new Array[Double](weightMatrix.numRows))
+      val weightMatrixBDV = weightMatrix.asBreeze.toDenseMatrix
+
       val withBias = dataMatrix.size + 1 == dataWithBiasSize
       (0 until numClasses - 1).foreach { i =>
-        var margin = 0.0
+        var margin = breeze.linalg.DenseVector.zeros[Double](weightMatrixBDV.rows)
         dataMatrix.foreachActive { (index, value) =>
-          if (value != 0.0) margin += value * weightsArray((i * dataWithBiasSize) + index)
+          if (value != 0.0) {
+            margin += value * weightMatrixBDV(::, (i * dataWithBiasSize) + index)
+          }
         }
         // Intercept is required to be added into margin.
         if (withBias) {
-          margin += weightsArray((i * dataWithBiasSize) + dataMatrix.size)
+
+          margin += weightMatrixBDV(::, (i * dataWithBiasSize) + dataMatrix.size)
         }
-        if (margin > maxMargin) {
-          maxMargin = margin
-          bestClass = i + 1
+        // TODO(Qingqing): find a way to achieve parralelism
+        (0 until weightMatrixBDV.rows).foreach {j =>
+          if (margin(j) > maxMargin(j)) {
+            maxMargin(j) = margin(j)
+            bestClass(j) = i + 1
+          }
+
         }
       }
-      bestClass.toDouble
+      bestClass
     }
   }
 
@@ -233,7 +246,8 @@ object LogisticRegressionModel extends Loader[LogisticRegressionModel] {
         val data = GLMClassificationModel.SaveLoadV1_0.loadData(sc, path, classNameV1_0)
         // numFeatures, numClasses, weights are checked in model initialization
         val model =
-          new LogisticRegressionModel(data.weights, data.intercept, numFeatures, numClasses)
+          new LogisticRegressionModel(weights = data.weights, intercept = data.intercept,
+            numFeatures = numFeatures, numClasses = numClasses)
         data.threshold match {
           case Some(t) => model.setThreshold(t)
           case None => model.clearThreshold()
@@ -284,7 +298,13 @@ class LogisticRegressionWithSGD private[mllib] (
   def this() = this(1.0, 100, 0.01, 1.0)
 
   override protected[mllib] def createModel(weights: Vector, intercept: Double) = {
-    new LogisticRegressionModel(weights, intercept)
+    new LogisticRegressionModel(weights = weights, intercept = intercept)
+  }
+
+  // TODO(Qingqing): fix the batch model for logistic regression with SGD
+  override protected[mllib] def createModel(weights: Matrix, intercept: Vector):
+  LogisticRegressionModel = {
+    new LogisticRegressionModel(weightMatrix = weights, interceptVector = intercept)
   }
 }
 
@@ -436,17 +456,19 @@ class LogisticRegressionWithLBFGS
 
   override protected def createModel(weights: Vector, intercept: Double) = {
     if (numOfLinearPredictor == 1) {
-      new LogisticRegressionModel(weights, intercept)
+      new LogisticRegressionModel(weights = weights, intercept = intercept)
     } else {
-      new LogisticRegressionModel(weights, intercept, numFeatures, numOfLinearPredictor + 1)
+      new LogisticRegressionModel(weights = weights, intercept = intercept,
+        numFeatures = numFeatures, numClasses = numOfLinearPredictor + 1)
     }
   }
 
   override protected def createModel(weights: Matrix, intercept: Vector) = {
     if (numOfLinearPredictor == 1) {
-      new LogisticRegressionModel(weights, intercept)
+      new LogisticRegressionModel(weightMatrix = weights, interceptVector = intercept)
     } else {
-      new LogisticRegressionModel(weights, intercept, numFeatures, numOfLinearPredictor + 1)
+      new LogisticRegressionModel(weightMatrix = weights, interceptVector = intercept,
+        numFeatures = numFeatures, numClasses = numOfLinearPredictor + 1)
     }
   }
 
@@ -491,7 +513,6 @@ class LogisticRegressionWithLBFGS
       LogisticRegressionModel = {
     // ml's Logistic regression only supports binary classification currently.
     if (numOfLinearPredictor == 1) {
-      // TODO: ml.classification.LogisticRegression called at Binary classification
       def runWithMlLogisticRegression(elasticNetParam: Double) = {
         // Prepare the ml LogisticRegression based on our settings
         val lr = new org.apache.spark.ml.classification.LogisticRegression()
@@ -523,6 +544,17 @@ class LogisticRegressionWithLBFGS
         case x: L1Updater => runWithMlLogisticRegression(1.0)
         case _ => super.run(input, initialWeights)
       }
+    } else {
+      super.run(input, initialWeights)
+    }
+  }
+
+  private def run(input: RDD[LabeledPoint], initialWeights: Matrix, userSuppliedWeights: Boolean):
+  LogisticRegressionModel = {
+    // ml's Logistic regression only supports binary classification currently.
+    if (numOfLinearPredictor == 1) {
+      // TODO(Qingqing): fix batch binary classification
+      throw new IllegalArgumentException("No support for batch binary classification at the moment")
     } else {
       super.run(input, initialWeights)
     }
