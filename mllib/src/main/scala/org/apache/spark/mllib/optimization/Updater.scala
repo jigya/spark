@@ -22,7 +22,7 @@ import scala.math._
 import breeze.linalg.{axpy => brzAxpy, norm => brzNorm, Vector => BV}
 
 import org.apache.spark.annotation.DeveloperApi
-import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.linalg.{Vector, Vectors, Matrix, Matrices}
 
 /**
  * :: DeveloperApi ::
@@ -59,6 +59,14 @@ abstract class Updater extends Serializable {
       stepSize: Double,
       iter: Int,
       regParam: Double): (Vector, Double)
+
+//  def compute(
+//      weightsOld: Matrix,
+//      gradient: Matrix,
+//      stepSize: Vector,
+//      iter: Int,
+//      regParam: Matrix): (Matrix, Vector)
+//  )
 }
 
 /**

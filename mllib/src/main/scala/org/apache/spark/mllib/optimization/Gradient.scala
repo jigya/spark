@@ -15,10 +15,12 @@
  * limitations under the License.
  */
 
+ // TODO: JIYAD: Change
+
 package org.apache.spark.mllib.optimization
 
 import org.apache.spark.annotation.DeveloperApi
-import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors}
+import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors, Matrix, Matrices}
 import org.apache.spark.mllib.linalg.BLAS.{axpy, dot, scal}
 import org.apache.spark.mllib.util.MLUtils
 
@@ -44,6 +46,25 @@ abstract class Gradient extends Serializable {
   }
 
   /**
+   * Compute the gradient and loss given the features of a single data point.
+   *
+   * @param data features for one data point
+   * @param label label for this data point
+   * @param weights weights/coefficients corresponding to features which is a matrix
+   *        taking in d*w matrix, for w different weights
+   *
+   * @return (gradient: Matrix, loss: Vector)
+   *         The vector is a matrix for each feature in the data point,
+   *         which will be of size d*w
+   *         Loss will be a vector of size w corresponding to each weight
+   */
+  def compute(data: Vector, label: Double, weights: Matrix): (Matrix, Vector) = {
+    val gradient = Matrices.zeros(weights.numRows, weights.numCols)
+    val loss = compute(data, label, weights, gradient)
+    (gradient, loss)
+  }
+
+  /**
    * Compute the gradient and loss given the features of a single data point,
    * add the gradient to a provided vector to avoid creating new objects, and return loss.
    *
@@ -55,6 +76,8 @@ abstract class Gradient extends Serializable {
    * @return loss
    */
   def compute(data: Vector, label: Double, weights: Vector, cumGradient: Vector): Double
+
+  def compute(data: Vector, label: Double, weights: Matrix, cumGradient: Matrix): Vector
 }
 
 /**
@@ -270,6 +293,53 @@ class LogisticGradient(numClasses: Int) extends Gradient {
         } else {
           loss
         }
+    }
+  }
+
+  // TODO: JIYAD: Remove all the for loops
+  override def compute(
+      data: Vector,
+      label: Double,
+      weights: Matrix,
+      cumGradient: Matrix): Vector = {
+    val dataSize = data.size
+    require(weights.numRows % dataSize == 0 && numClasses == weights.numRows / dataSize + 1)
+
+    numClasses match {
+      case 2 =>
+        // Margin will be size w*1
+        val margin = weights.transpose.multiply(data)
+        scal(-1, margin)
+//        val multiplier = Vectors.zeros(margin.size)
+        val multiplier = Matrices.zeros(margin.size, 1)
+        //  Multiplier will be size w*1
+        margin.foreachActive { (index, value) =>
+          multiplier.update(index, 0, (1.0 / (1.0 + math.exp(value))) - label)
+//          multiplier.toArray(index) = (1.0 / (1.0 + math.exp(value))) - label
+        }
+
+        // cumGradient += multiplier*data
+//        val mat1 = data.asBreeze.
+//        val mat2 = multiplier.asBreeze
+        val prod = (data.asBreeze.toDenseVector.asDenseMatrix)*(multiplier.asBreeze.toDenseMatrix)
+//        val prod = Vectors.fromBreeze(data.asBreeze.dot(multiplier.asBreeze))
+//        val cumGradientBreeze = cumGradient.asBreeze
+//        val updatedCumGradient = Matrices.fromBreeze(cumGradientBreeze + prod)
+        cumGradient.foreachActive { (i, j, value) =>
+          cumGradient.update(i, j, prod(i, j))
+        }
+//        axpy(1, prod, cumGradient.asDense)
+
+        if (label > 0) {
+          margin.foreachActive { (i, v) =>
+            margin.toArray(i) = MLUtils.log1pExp(v)
+          }
+        } else {
+          margin.foreachActive { (i, v) =>
+            margin.toArray(i) = MLUtils.log1pExp(v) - v
+          }
+        }
+        margin
     }
   }
 }

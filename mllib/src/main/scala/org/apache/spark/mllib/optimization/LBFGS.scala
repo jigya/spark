@@ -19,12 +19,14 @@ package org.apache.spark.mllib.optimization
 
 import scala.collection.mutable
 
+import breeze.math.{EntrywiseMatrixNorms, MutableInnerProductModule}
 import breeze.linalg.{DenseVector => BDV}
+import breeze.linalg.{DenseMatrix => BDM}
 import breeze.optimize.{CachedDiffFunction, DiffFunction, LBFGS => BreezeLBFGS}
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
-import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors}
+import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors, Matrix, Matrices, SparseMatrix, DenseMatrix}
 import org.apache.spark.mllib.linalg.BLAS.axpy
 import org.apache.spark.rdd.RDD
 
@@ -160,6 +162,19 @@ class LBFGS(private var gradient: Gradient, private var updater: Updater)
     weights
   }
 
+  override def optimize(data: RDD[(Double, Vector)], initialWeights: Matrix): Matrix = {
+    val(weights,_) = LBFGS.runLBFGS(
+      data,
+      gradient,
+      updater,
+      numCorrections,
+      convergenceTol,
+      maxNumIterations,
+      regParams,
+      initialWeights)
+    weights
+  }
+
 }
 
 /**
@@ -231,6 +246,173 @@ object LBFGS extends Logging {
 
     (weights, lossHistoryArray)
   }
+
+    /**
+   * Run Limited-memory BFGS (L-BFGS) in parallel.
+   * Averaging the subgradients over different partitions is performed using one standard
+   * spark map-reduce in each iteration.
+   *
+   * @param data - Input data for L-BFGS. RDD of the set of data examples, each of
+   *               the form (label, [feature values]).
+   * @param gradient - Gradient object (used to compute the gradient of the loss function of
+   *                   one single data example)
+   * @param updater - Updater function to actually perform a gradient step in a given direction.
+   * @param numCorrections - The number of corrections used in the L-BFGS update.
+   * @param convergenceTol - The convergence tolerance of iterations for L-BFGS which is must be
+   *                         nonnegative. Lower values are less tolerant and therefore generally
+   *                         cause more iterations to be run.
+   * @param maxNumIterations - Maximal number of iterations that L-BFGS can be run.
+   * @param regParam - Regularization parameter
+   *
+   * @return A tuple containing two elements. The first element is a column matrix containing
+   *         weights for every feature, and the second element is an array containing the loss
+   *         computed for every iteration.
+   */
+
+   // TODO: JIYAD: Do we need different number of maxNumIterations and convergenceTol?
+   // How will the loss history change?
+  def runLBFGS(
+      data: RDD[(Double, Vector)],
+      gradient: Gradient,
+      updater: Updater,
+      numCorrections: Int,
+      convergenceTol: Double,
+      maxNumIterations: Int,
+      regParam: Vector,
+      initialWeights: Matrix): (Matrix, Array[Double]) = {
+
+    // JIYAD: Change this
+    // val lossHistory = mutable.ArrayBuilder.make[Vector]
+
+    val numExamples = data.count()
+
+    // JIYAD: Need to change the cost function
+    val costFun =
+      new CostFunMatrix(data, gradient, updater, regParam, numExamples)
+
+    // JIYAD: What is the implication of this?
+    val norms = EntrywiseMatrixNorms.make[BDM[Double], Double]
+    import norms._
+    implicit val space = MutableInnerProductModule.make[BDM[Double], Double]
+
+    // JIYAD: What is the breeze LBFGS?
+    val lbfgs = new BreezeLBFGS[BDM[Double]](maxNumIterations, numCorrections, convergenceTol)
+
+    // JIYAD: Change the CachedDiffFunction
+    val states =
+      lbfgs.iterations(new CachedDiffFunction(costFun), initialWeights.asBreeze.toDenseMatrix)
+
+    /**
+
+     * NOTE: lossSum and loss is computed using the weights from the previous iteration
+     * and regVal is the regularization value computed in the previous iteration as well.
+     */
+    var state = states.next()
+    while (states.hasNext) {
+      // lossHistory += state.value
+      state = states.next()
+    }
+    // lossHistory += state.value
+
+    val weights = Matrices.fromBreeze(state.x)
+
+    val lossHistoryArray = Array[Double]()
+
+    // logInfo("LBFGS.runLBFGS finished. Last 10 losses %s".format(
+    //   lossHistoryArray.takeRight(10).mkString(", ")))
+    logInfo("LBFGS.runLBFGS finished.")
+
+    (weights, lossHistoryArray)
+  }
+
+
+  /**
+   * CostFun implements Breeze's DiffFunction[T], which returns the loss and gradient
+   * at a particular point (weights). It's used in Breeze's convex optimization routines.
+   */
+  // JIYAD implementation
+  private class CostFunMatrix(
+    data: RDD[(Double, Vector)],
+    gradient: Gradient,
+    updater: Updater,
+    regParam: Vector,
+    numExamples: Long) extends DiffFunction[BDM[Double]] {
+
+    override def calculate(weights: BDM[Double]): (Double, BDM[Double]) = {
+      // Have a local copy to avoid the serialization of CostFun object which is not serializable.
+      val w = Matrices.fromBreeze(weights)
+      // JIYAD: What will n be here?
+      val numRows = w.numRows
+      val numCols = w.numCols
+      val bcW = data.context.broadcast(w)
+      val localGradient = gradient
+
+      // denseGrad will be a vector
+      // loss will be a vector
+      val seqOp = (c: (Matrix, Vector), v: (Double, Vector)) =>
+        (c, v) match {
+          case ((grad, loss), (label, features)) =>
+            var denseGrad = null
+            grad match {
+              case sm: SparseMatrix =>
+                denseGrad = (grad.asInstanceOf[SparseMatrix]).toDense
+              case dm: DenseMatrix =>
+                denseGrad = grad
+            }
+            // val denseGrad = grad.toDense
+            val l = localGradient.compute(features, label, bcW.value, denseGrad)
+            (denseGrad, loss + l)
+        }
+
+      val combOp = (c1: (Matrix, Vector), c2: (Matrix, Vector)) =>
+        (c1, c2) match { case ((grad1, loss1), (grad2, loss2)) =>
+          val denseGrad1 = grad1.toDense
+          val denseGrad2 = grad2.toDense
+          axpy(1.0, denseGrad2, denseGrad1)
+          (denseGrad1, loss1 + loss2)
+       }
+
+      val zeroSparseMatrix = Matrices.sparse(numRows, numCols, Array[Int](), Array[Int](), Array[Double]())
+      val (gradientSum, lossSum) = data.treeAggregate((zeroSparseMatrix, 0.0))(seqOp, combOp)
+
+      // broadcasted model is not needed anymore
+      bcW.destroy(blocking = false)
+
+      /**
+       * regVal is sum of weight squares if it's L2 updater;
+       * for other updater, the same logic is followed.
+       */
+      val regVal = updater.compute(w, Matrices.zeros(numRows, numCols), 0, 1, regParam)._2
+
+      val loss = lossSum / numExamples + regVal
+      /**
+       * It will return the gradient part of regularization using updater.
+       *
+       * Given the input parameters, the updater basically does the following,
+       *
+       * w' = w - thisIterStepSize * (gradient + regGradient(w))
+       * Note that regGradient is function of w
+       *
+       * If we set gradient = 0, thisIterStepSize = 1, then
+       *
+       * regGradient(w) = w - w'
+       *
+       * TODO: We need to clean it up by separating the logic of regularization out
+       *       from updater to regularizer.
+       */
+      // The following gradientTotal is actually the regularization part of gradient.
+      // Will add the gradientSum computed from the data with weights in the next step.
+      val gradientTotal = w.copy
+      axpy(-1.0, updater.compute(w, Matrices.zeros(numRows, numCols), 1, 1, regParam)._1, gradientTotal)
+
+      // gradientTotal = gradientSum / numExamples + gradientTotal
+      axpy(1.0 / numExamples, gradientSum, gradientTotal)
+
+      (loss, gradientTotal.asBreeze.asInstanceOf[BDM[Double]])
+    }
+  }
+
+
 
   /**
    * CostFun implements Breeze's DiffFunction[T], which returns the loss and gradient
