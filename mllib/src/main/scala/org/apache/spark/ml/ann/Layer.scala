@@ -22,7 +22,7 @@ import java.util.Random
 import breeze.linalg.{*, axpy => Baxpy, DenseMatrix => BDM, DenseVector => BDV, Vector => BV}
 
 import org.apache.spark.ml.linalg.{Vector, Vectors}
-import org.apache.spark.mllib.linalg.{Vector => OldVector, Vectors => OldVectors}
+import org.apache.spark.mllib.linalg.{Matrices, Matrix, Vector => OldVector, Vectors => OldVectors}
 import org.apache.spark.mllib.linalg.VectorImplicits._
 import org.apache.spark.mllib.optimization._
 import org.apache.spark.rdd.RDD
@@ -626,6 +626,14 @@ private[ann] class ANNGradient(topology: Topology, dataStacker: DataStacker) ext
     val model = topology.model(weights)
     model.computeGradient(input, target, cumGradient, realBatchSize)
   }
+
+  override def compute(
+     data: OldVector,
+     label: Double,
+     weights: Matrix,
+     cumGradient: Matrix): OldVector = {
+    Vectors.zeros(data.size)
+  }
 }
 
 /**
@@ -704,6 +712,15 @@ private[ann] class ANNUpdater extends Updater {
     val brzWeights: BV[Double] = weightsOld.asBreeze.toDenseVector
     Baxpy(-thisIterStepSize, gradient.asBreeze, brzWeights)
     (OldVectors.fromBreeze(brzWeights), 0)
+  }
+
+  override def compute(
+     weightsOld: Matrix,
+     gradient: Matrix,
+     stepSize: Double,
+     iter: Int,
+     regParam: OldVector): (Matrix, OldVector) = {
+    (null, null)
   }
 }
 

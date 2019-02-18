@@ -19,14 +19,14 @@ package org.apache.spark.mllib.optimization
 
 import scala.collection.mutable
 
-import breeze.math.{EntrywiseMatrixNorms, MutableInnerProductModule}
-import breeze.linalg.{DenseVector => BDV}
 import breeze.linalg.{DenseMatrix => BDM}
+import breeze.linalg.{DenseVector => BDV}
+import breeze.math.{EntrywiseMatrixNorms, MutableInnerProductModule}
 import breeze.optimize.{CachedDiffFunction, DiffFunction, LBFGS => BreezeLBFGS}
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
-import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors, Matrix, Matrices, SparseMatrix, DenseMatrix}
+import org.apache.spark.mllib.linalg.{DenseMatrix, DenseVector, Matrices, Matrix, SparseMatrix, Vector, Vectors}
 import org.apache.spark.mllib.linalg.BLAS.axpy
 import org.apache.spark.rdd.RDD
 
@@ -160,6 +160,10 @@ class LBFGS(private var gradient: Gradient, private var updater: Updater)
       regParam,
       initialWeights)
     weights
+  }
+
+  override def optimize(data: RDD[(Double, Vector)], initialWeights: Matrix): Matrix = {
+    (null)
   }
 }
 

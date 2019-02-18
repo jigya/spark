@@ -18,10 +18,12 @@
 package org.apache.spark.mllib.optimization
 
 import scala.collection.mutable.ArrayBuffer
+
 import breeze.linalg.{norm, DenseMatrix => BDM, DenseVector => BDV}
+
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
-import org.apache.spark.mllib.linalg.{Matrix, Matrices, Vector, Vectors}
+import org.apache.spark.mllib.linalg.{Matrices, Matrix, Vector, Vectors}
 import org.apache.spark.rdd.RDD
 
 
@@ -357,11 +359,6 @@ object GradientDescent extends Logging {
     val numRows = initialWeights.numRows
     val numCols = initialWeights.numCols
     var weights = Matrices.dense(numRows, numCols, initialWeights.toArray)
-
-    /**
-      * For the first iteration, the regVal will be initialized as sum of weight squares
-      * if it's L2 updater; for L1 updater, the same logic is followed.
-      */
     var regVal = updater.compute(
       weights, Matrices.zeros(weights.numRows, weights.numCols), 0, 1, regParam)._2
 

@@ -20,7 +20,7 @@
 package org.apache.spark.mllib.optimization
 
 import org.apache.spark.annotation.DeveloperApi
-import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors, Matrix, Matrices}
+import org.apache.spark.mllib.linalg.{DenseVector, Matrices, Matrix, Vector, Vectors}
 import org.apache.spark.mllib.linalg.BLAS.{axpy, dot, scal}
 import org.apache.spark.mllib.util.MLUtils
 
@@ -369,6 +369,10 @@ class LeastSquaresGradient extends Gradient {
     axpy(diff, data, cumGradient)
     diff * diff / 2.0
   }
+
+  def compute(data: Vector, label: Double, weights: Matrix, cumGradient: Matrix): Vector = {
+    (null)
+  }
 }
 
 /**
@@ -409,5 +413,9 @@ class HingeGradient extends Gradient {
     } else {
       0.0
     }
+  }
+
+  def compute(data: Vector, label: Double, weights: Matrix, cumGradient: Matrix): Vector = {
+    (null)
   }
 }

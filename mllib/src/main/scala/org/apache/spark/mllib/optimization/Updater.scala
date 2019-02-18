@@ -113,7 +113,6 @@ class SimpleUpdater extends Updater {
     // placeholder
     (weightsOld, regParam)
   }
-
 }
 
 /**
