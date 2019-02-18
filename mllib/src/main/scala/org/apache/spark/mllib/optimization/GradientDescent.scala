@@ -18,12 +18,10 @@
 package org.apache.spark.mllib.optimization
 
 import scala.collection.mutable.ArrayBuffer
-
-import breeze.linalg.{norm, DenseVector => BDV}
-
+import breeze.linalg.{norm, DenseMatrix => BDM, DenseVector => BDV}
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
-import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.linalg.{Matrix, Matrices, Vector, Vectors}
 import org.apache.spark.rdd.RDD
 
 
@@ -40,6 +38,7 @@ class GradientDescent private[spark] (private var gradient: Gradient, private va
   private var regParam: Double = 0.0
   private var miniBatchFraction: Double = 1.0
   private var convergenceTol: Double = 0.001
+  private var regParams : Vector = null
 
   /**
    * Set the initial step size of SGD for the first step. Default 1.0.
@@ -80,6 +79,11 @@ class GradientDescent private[spark] (private var gradient: Gradient, private va
     require(regParam >= 0,
       s"Regularization parameter must be nonnegative but got ${regParam}")
     this.regParam = regParam
+    this
+  }
+
+  def setRegParams(regParams: Double*): this.type = {
+    this.regParams = Vectors.dense(regParams.toArray)
     this
   }
 
@@ -145,6 +149,19 @@ class GradientDescent private[spark] (private var gradient: Gradient, private va
     weights
   }
 
+  def optimize(data: RDD[(Double, Vector)], initialWeights: Matrix): Matrix = {
+    val (weights) = GradientDescent.runMiniBatchSGD(
+      data,
+      gradient,
+      updater,
+      stepSize,
+      numIterations,
+      regParams,
+      miniBatchFraction,
+      initialWeights,
+      convergenceTol)
+    weights
+  }
 }
 
 /**
@@ -295,6 +312,99 @@ object GradientDescent extends Logging {
                                     regParam, miniBatchFraction, initialWeights, 0.001)
 
 
+
+  // TODO: Need to implement separate convergence for different weights
+  // Currently does not return the loss history
+  def runMiniBatchSGD(
+       data: RDD[(Double, Vector)],
+       gradient: Gradient,
+       updater: Updater,
+       stepSize: Double,
+       numIterations: Int,
+       regParam: Vector,
+       miniBatchFraction: Double,
+       initialWeights: Matrix,
+       convergenceTol: Double) : Matrix = {
+    // convergenceTol should be set with non minibatch settings
+    if (miniBatchFraction < 1.0 && convergenceTol > 0.0) {
+      logWarning("Testing against a convergenceTol when using miniBatchFraction " +
+        "< 1.0 can be unstable because of the stochasticity in sampling.")
+    }
+
+    if (numIterations * miniBatchFraction < 1.0) {
+      logWarning("Not all examples will be used if numIterations * miniBatchFraction < 1.0: " +
+        s"numIterations=$numIterations and miniBatchFraction=$miniBatchFraction")
+    }
+
+
+    // Record previous weight and current one to calculate solution vector difference
+
+    var previousWeights: Option[Matrix] = None
+    var currentWeights: Option[Matrix] = None
+
+    val numExamples = data.count()
+
+    if (numExamples == 0) {
+      logWarning("GradientDescent.runMiniBatchSGD returning initial weights, no data found")
+      return (initialWeights)
+    }
+
+    if (numExamples * miniBatchFraction < 1) {
+      logWarning("The miniBatchFraction is too small")
+    }
+
+    // Initialize weights as a column vector
+    val numRows = initialWeights.numRows
+    val numCols = initialWeights.numCols
+    var weights = Matrices.dense(numRows, numCols, initialWeights.toArray)
+
+    /**
+      * For the first iteration, the regVal will be initialized as sum of weight squares
+      * if it's L2 updater; for L1 updater, the same logic is followed.
+      */
+    var regVal = updater.compute(
+      weights, Matrices.zeros(weights.numRows, weights.numCols), 0, 1, regParam)._2
+
+    var converged = false
+    var i = 1
+
+    while (!converged && i <= numIterations) {
+      val bcWeights = data.context.broadcast(weights)
+      val (gradientSum, lossSum, miniBatchSize) = data.sample(false, miniBatchFraction, 42 + i)
+        .treeAggregate((BDM.zeros[Double](numRows, numCols), BDV.zeros[Double](numCols), 0L))(
+          seqOp = (c, v) => {
+            // c: (grad, loss, count), v: (label, features)
+            val l = gradient.compute(v._2, v._1, bcWeights.value, Matrices.fromBreeze(c._1))
+            (c._1, c._2 + l.asBreeze.toDenseVector, c._3 + 1)
+          },
+          combOp = (c1, c2) => {
+            (c1._1 += c2._1, c1._2 + c2._2, c1._3 + c2._3)
+          })
+      bcWeights.destroy(blocking = false)
+
+      if (miniBatchSize > 0) {
+        val update = updater.compute(
+          weights, Matrices.fromBreeze(gradientSum / miniBatchSize.toDouble),
+          stepSize, i, regParam)
+        weights = update._1
+        regVal = update._2
+
+        previousWeights = currentWeights
+        currentWeights = Some(weights)
+        if (previousWeights != None && currentWeights != None) {
+          converged = isConverged(previousWeights.get,
+            currentWeights.get, convergenceTol)
+        }
+      } else {
+        logWarning(s"Iteration ($i/$numIterations). The size of sampled batch is zero")
+      }
+      i += 1
+    }
+
+    weights
+  }
+
+
   private def isConverged(
       previousWeights: Vector,
       currentWeights: Vector,
@@ -307,6 +417,22 @@ object GradientDescent extends Logging {
     val solutionVecDiff: Double = norm(previousBDV - currentBDV)
 
     solutionVecDiff < convergenceTol * Math.max(norm(currentBDV), 1.0)
+  }
+
+  // TODO: JIYAD: Need to figure this out- How to return correct convergence conditions
+  private def isConverged(
+       previousWeights: Matrix,
+       currentWeights: Matrix,
+       convergenceTol: Double
+       ): Boolean = {
+    val previousBDM = previousWeights.asBreeze.toDenseMatrix
+    val currentBDM = currentWeights.asBreeze.toDenseMatrix
+
+    var solutionMatDiff = previousBDM - currentBDM
+    solutionMatDiff = solutionMatDiff *:* solutionMatDiff
+    val normVector = breeze.linalg.sum(solutionMatDiff, breeze.linalg.Axis._0)
+
+    false
   }
 
 }

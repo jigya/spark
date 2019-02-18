@@ -328,7 +328,6 @@ class LogisticGradient(numClasses: Int) extends Gradient {
         cumGradient.foreachActive { (i, j, value) =>
           cumGradient.update(i, j, prod(i, j))
         }
-//        axpy(1, prod, cumGradient.asDense)
 
         if (label > 0) {
           margin.foreachActive { (i, v) =>

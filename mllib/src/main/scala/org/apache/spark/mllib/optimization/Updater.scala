@@ -60,13 +60,12 @@ abstract class Updater extends Serializable {
       iter: Int,
       regParam: Double): (Vector, Double)
 
-//  def compute(
-//      weightsOld: Matrix,
-//      gradient: Matrix,
-//      stepSize: Vector,
-//      iter: Int,
-//      regParam: Matrix): (Matrix, Vector)
-//  )
+  def compute(
+      weightsOld: Matrix,
+      gradient: Matrix,
+      stepSize: Double,
+      iter: Int,
+      regParam: Vector): (Matrix, Vector)
 }
 
 /**
