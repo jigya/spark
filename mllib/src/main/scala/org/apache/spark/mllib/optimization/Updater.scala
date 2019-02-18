@@ -22,7 +22,7 @@ import scala.math._
 import breeze.linalg.{axpy => brzAxpy, norm => brzNorm, Vector => BV}
 
 import org.apache.spark.annotation.DeveloperApi
-import org.apache.spark.mllib.linalg.{Vector, Vectors, Matrix, Matrices}
+import org.apache.spark.mllib.linalg.{Matrices, Matrix, Vector, Vectors}
 
 /**
  * :: DeveloperApi ::
@@ -87,6 +87,15 @@ class SimpleUpdater extends Updater {
 
     (Vectors.fromBreeze(brzWeights), 0)
   }
+
+  override def compute(
+      weightsOld: Matrix,
+      gradient: Matrix,
+      stepSize: Double,
+      iter: Int,
+      regParam: Vector): (Matrix, Vector) = {
+    (null, null)
+  }
 }
 
 /**
@@ -132,6 +141,15 @@ class L1Updater extends Updater {
 
     (Vectors.fromBreeze(brzWeights), brzNorm(brzWeights, 1.0) * regParam)
   }
+
+  override def compute(
+      weightsOld: Matrix,
+      gradient: Matrix,
+      stepSize: Double,
+      iter: Int,
+      regParam: Vector): (Matrix, Vector) = {
+    (null, null)
+  }
 }
 
 /**
@@ -159,6 +177,15 @@ class SquaredL2Updater extends Updater {
     val norm = brzNorm(brzWeights, 2.0)
 
     (Vectors.fromBreeze(brzWeights), 0.5 * regParam * norm * norm)
+  }
+
+  override def compute(
+      weightsOld: Matrix,
+      gradient: Matrix,
+      stepSize: Double,
+      iter: Int,
+      regParam: Vector): (Matrix, Vector) = {
+    (null, null)
   }
 }
 
