@@ -19,10 +19,11 @@ package org.apache.spark.mllib.optimization
 
 import scala.math._
 
-import breeze.linalg.{axpy => brzAxpy, norm => brzNorm, Vector => BV}
+import breeze.linalg._
+import breeze.linalg.{axpy => brzAxpy, norm => brzNorm, DenseVector => BDV, Matrix => BM, Vector => BV}
 
 import org.apache.spark.annotation.DeveloperApi
-import org.apache.spark.mllib.linalg.{Vector, Vectors, Matrix, Matrices}
+import org.apache.spark.mllib.linalg.{Matrices, Matrix, Vector, Vectors}
 
 /**
  * :: DeveloperApi ::
@@ -60,6 +61,21 @@ abstract class Updater extends Serializable {
       iter: Int,
       regParam: Double): (Vector, Double)
 
+  /**
+    * Compute an updated value for weights given the gradient, stepSize, iteration number and
+    * regularization parameter. Also returns the regularization value regParam * R(w)
+    * computed using the *updated* weights.
+    *
+    * @param weightsOld - matrix of size nxd where n is the number of regularization params,
+    *                   and d is the number of features.
+    * @param gradient   - matrix of size nxd where n is the number of regularization params,
+    *                   and d is the number of features.
+    * @param stepSize   - step size across iterations
+    * @param iter       - Iteration number
+    * @param regParam   - Regularization parameters
+    * @return A tuple of 2 elements. The first element is a matrix containing updated weights,
+    *         and the second element is the regularization value computed using updated weights.
+    */
   def compute(
       weightsOld: Matrix,
       gradient: Matrix,
@@ -87,6 +103,17 @@ class SimpleUpdater extends Updater {
 
     (Vectors.fromBreeze(brzWeights), 0)
   }
+
+  override def compute(
+      weightsOld: Matrix,
+      gradient: Matrix,
+      stepSize: Double,
+      iter: Int,
+      regParam: Vector): (Matrix, Vector) = {
+    // placeholder
+    (weightsOld, regParam)
+  }
+
 }
 
 /**
@@ -126,11 +153,21 @@ class L1Updater extends Updater {
     val len = brzWeights.length
     while (i < len) {
       val wi = brzWeights(i)
-      brzWeights(i) = signum(wi) * max(0.0, abs(wi) - shrinkageVal)
+      brzWeights(i) = signum(wi) * scala.math.max(0.0, abs(wi) - shrinkageVal)
       i += 1
     }
 
     (Vectors.fromBreeze(brzWeights), brzNorm(brzWeights, 1.0) * regParam)
+  }
+
+  override def compute(
+      weightsOld: Matrix,
+      gradient: Matrix,
+      stepSize: Double,
+      iter: Int,
+      regParam: Vector): (Matrix, Vector) = {
+    // placeholder
+    (weightsOld, regParam)
   }
 }
 
@@ -159,6 +196,25 @@ class SquaredL2Updater extends Updater {
     val norm = brzNorm(brzWeights, 2.0)
 
     (Vectors.fromBreeze(brzWeights), 0.5 * regParam * norm * norm)
+  }
+
+  override def compute(
+      weightsOld: Matrix,
+      gradient: Matrix,
+      stepSize: Double,
+      iter: Int,
+      regParam: Vector): (Matrix, Vector) = {
+    val thisIterStepSize = stepSize / math.sqrt(iter)
+    val brzWeights: BM[Double] = weightsOld.asBreeze.toDenseMatrix
+    val regParamBDV = regParam.asBreeze.toDenseVector
+    brzWeights :*= tile(BDV.ones[Double](weightsOld.numRows) -
+      regParamBDV * thisIterStepSize, 1, weightsOld.numCols)
+    brzWeights :-= thisIterStepSize * gradient.asBreeze.toDenseMatrix
+    // Qingqing: Normalize the weight matrix by normalizing each col
+    val brzWeightSquare = (brzWeights *:* brzWeights).t.asInstanceOf[DenseMatrix[Double]]
+    val norm = breeze.linalg.sum(brzWeightSquare, breeze.linalg.Axis._0).
+      asInstanceOf[DenseVector[Double]]
+    (Matrices.fromBreeze(brzWeights), Vectors.fromBreeze(0.5 * regParamBDV *:* norm *:* norm))
   }
 }
 
