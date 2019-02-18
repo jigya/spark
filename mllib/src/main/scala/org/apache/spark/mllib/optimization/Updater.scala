@@ -62,20 +62,20 @@ abstract class Updater extends Serializable {
       regParam: Double): (Vector, Double)
 
   /**
-    * Compute an updated value for weights given the gradient, stepSize, iteration number and
-    * regularization parameter. Also returns the regularization value regParam * R(w)
-    * computed using the *updated* weights.
-    *
-    * @param weightsOld - matrix of size nxd where n is the number of regularization params,
-    *                   and d is the number of features.
-    * @param gradient   - matrix of size nxd where n is the number of regularization params,
-    *                   and d is the number of features.
-    * @param stepSize   - step size across iterations
-    * @param iter       - Iteration number
-    * @param regParam   - Regularization parameters
-    * @return A tuple of 2 elements. The first element is a matrix containing updated weights,
-    *         and the second element is the regularization value computed using updated weights.
-    */
+   * Compute an updated value for weights given the gradient, stepSize, iteration number and
+   * regularization parameter. Also returns the regularization value regParam * R(w)
+   * computed using the *updated* weights.
+   *
+   * @param weightsOld - matrix of size nxd where n is the number of regularization params,
+   *                   and d is the number of features.
+   * @param gradient   - matrix of size nxd where n is the number of regularization params,
+   *                   and d is the number of features.
+   * @param stepSize   - step size across iterations
+   * @param iter       - Iteration number
+   * @param regParam   - Regularization parameters
+   * @return A tuple of 2 elements. The first element is a matrix containing updated weights,
+   *         and the second element is the regularization value computed using updated weights.
+   */
   def compute(
       weightsOld: Matrix,
       gradient: Matrix,
