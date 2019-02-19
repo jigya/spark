@@ -17,16 +17,12 @@
 
 package org.apache.spark.mllib.classification
 
-import breeze.linalg._
-import breeze.numerics._
-
 import org.apache.spark.SparkContext
 import org.apache.spark.annotation.Since
 import org.apache.spark.ml.linalg.DenseMatrix
 import org.apache.spark.ml.util.Identifiable
 import org.apache.spark.mllib.classification.impl.GLMClassificationModel
-import org.apache.spark.mllib.linalg.{DenseVector, Matrix, Vector, Vectors}
-import org.apache.spark.mllib.linalg.BLAS.axpy
+import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors}
 import org.apache.spark.mllib.linalg.BLAS.dot
 import org.apache.spark.mllib.optimization._
 import org.apache.spark.mllib.pmml.PMMLExportable
@@ -50,14 +46,11 @@ import org.apache.spark.storage.StorageLevel
  */
 @Since("0.8.0")
 class LogisticRegressionModel @Since("1.3.0") (
-    override val weightMatrix: Matrix = null,
-    override val interceptVector: Vector = null,
-    @Since("1.0.0") override val weights: Vector = null,
-    @Since("1.0.0") override val intercept: Double = 0.0,
+    @Since("1.0.0") override val weights: Vector,
+    @Since("1.0.0") override val intercept: Double,
     @Since("1.3.0") val numFeatures: Int,
     @Since("1.3.0") val numClasses: Int)
-  extends GeneralizedLinearModel(weightMatrix, interceptVector, weights, intercept)
-    with ClassificationModel with Serializable
+  extends GeneralizedLinearModel(weights, intercept) with ClassificationModel with Serializable
   with Saveable with PMMLExportable {
 
   if (numClasses == 2) {
@@ -164,61 +157,6 @@ class LogisticRegressionModel @Since("1.3.0") (
     }
   }
 
-  override protected def predictPoint(
-    dataMatrix: Vector,
-    weightMatrix: Matrix,
-    intercept: Vector) = {
-    require(dataMatrix.size == numFeatures)
-
-    // If dataMatrix and weightMatrix have the same dimension, it's binary logistic regression.
-    if (numClasses == 2) {
-      val margin = weightMatrix.multiply(dataMatrix)
-      axpy(1.0, intercept, margin)
-      val marginBDV = margin.asBreeze.toDenseVector
-      val score = sigmoid(marginBDV)
-      threshold match {
-        case Some(t) => Vectors.fromBreeze(marginBDV.map(e => if (e > t) 1.0 else 0.0))
-        case None => Vectors.fromBreeze(score)
-      }
-    } else {
-      /**
-        * Compute and find the one with maximum margins. If the maxMargin is negative, then the
-        * prediction result will be the first class.
-        *
-        * PS, if you want to compute the probabilities for each outcome instead of the outcome
-        * with maximum probability, remember to subtract the maxMargin from margins if maxMargin
-        * is positive to prevent overflow.
-        */
-      var bestClass = Vectors.dense(new Array[Double](weightMatrix.numRows))
-      var maxMargin = Vectors.dense(new Array[Double](weightMatrix.numRows))
-      val weightMatrixBDV = weightMatrix.asBreeze.toDenseMatrix
-
-      val withBias = dataMatrix.size + 1 == dataWithBiasSize
-      (0 until numClasses - 1).foreach { i =>
-        var margin = breeze.linalg.DenseVector.zeros[Double](weightMatrixBDV.rows)
-        dataMatrix.foreachActive { (index, value) =>
-          if (value != 0.0) {
-            margin += value * weightMatrixBDV(::, (i * dataWithBiasSize) + index)
-          }
-        }
-        // Intercept is required to be added into margin.
-        if (withBias) {
-
-          margin += weightMatrixBDV(::, (i * dataWithBiasSize) + dataMatrix.size)
-        }
-        // TODO(Qingqing): find a way to achieve parralelism
-        (0 until weightMatrixBDV.rows).foreach {j =>
-          if (margin(j) > maxMargin(j)) {
-            maxMargin(j) = margin(j)
-            bestClass(j) = i + 1
-          }
-
-        }
-      }
-      bestClass
-    }
-  }
-
   @Since("1.3.0")
   override def save(sc: SparkContext, path: String): Unit = {
     GLMClassificationModel.SaveLoadV1_0.save(sc, path, this.getClass.getName,
@@ -246,8 +184,7 @@ object LogisticRegressionModel extends Loader[LogisticRegressionModel] {
         val data = GLMClassificationModel.SaveLoadV1_0.loadData(sc, path, classNameV1_0)
         // numFeatures, numClasses, weights are checked in model initialization
         val model =
-          new LogisticRegressionModel(weights = data.weights, intercept = data.intercept,
-            numFeatures = numFeatures, numClasses = numClasses)
+          new LogisticRegressionModel(data.weights, data.intercept, numFeatures, numClasses)
         data.threshold match {
           case Some(t) => model.setThreshold(t)
           case None => model.clearThreshold()
@@ -298,13 +235,7 @@ class LogisticRegressionWithSGD private[mllib] (
   def this() = this(1.0, 100, 0.01, 1.0)
 
   override protected[mllib] def createModel(weights: Vector, intercept: Double) = {
-    new LogisticRegressionModel(weights = weights, intercept = intercept)
-  }
-
-  // TODO(Qingqing): fix the batch model for logistic regression with SGD
-  override protected[mllib] def createModel(weights: Matrix, intercept: Vector):
-  LogisticRegressionModel = {
-    new LogisticRegressionModel(weightMatrix = weights, interceptVector = intercept)
+    new LogisticRegressionModel(weights, intercept)
   }
 }
 
@@ -456,19 +387,9 @@ class LogisticRegressionWithLBFGS
 
   override protected def createModel(weights: Vector, intercept: Double) = {
     if (numOfLinearPredictor == 1) {
-      new LogisticRegressionModel(weights = weights, intercept = intercept)
+      new LogisticRegressionModel(weights, intercept)
     } else {
-      new LogisticRegressionModel(weights = weights, intercept = intercept,
-        numFeatures = numFeatures, numClasses = numOfLinearPredictor + 1)
-    }
-  }
-
-  override protected def createModel(weights: Matrix, intercept: Vector) = {
-    if (numOfLinearPredictor == 1) {
-      new LogisticRegressionModel(weightMatrix = weights, interceptVector = intercept)
-    } else {
-      new LogisticRegressionModel(weightMatrix = weights, interceptVector = intercept,
-        numFeatures = numFeatures, numClasses = numOfLinearPredictor + 1)
+      new LogisticRegressionModel(weights, intercept, numFeatures, numOfLinearPredictor + 1)
     }
   }
 
@@ -483,12 +404,7 @@ class LogisticRegressionWithLBFGS
    * If using ml implementation, uses ml code to generate initial weights.
    */
   override def run(input: RDD[LabeledPoint]): LogisticRegressionModel = {
-    if (optimizer.getRegParams() != null) {
-      run(input, generateInitialWeights(input, optimizer.getRegParams().size),
-        userSuppliedWeights = false)
-    } else {
-      run(input, generateInitialWeights(input), userSuppliedWeights = false)
-    }
+    run(input, generateInitialWeights(input), userSuppliedWeights = false)
   }
 
   /**
@@ -544,17 +460,6 @@ class LogisticRegressionWithLBFGS
         case x: L1Updater => runWithMlLogisticRegression(1.0)
         case _ => super.run(input, initialWeights)
       }
-    } else {
-      super.run(input, initialWeights)
-    }
-  }
-
-  private def run(input: RDD[LabeledPoint], initialWeights: Matrix, userSuppliedWeights: Boolean):
-  LogisticRegressionModel = {
-    // ml's Logistic regression only supports binary classification currently.
-    if (numOfLinearPredictor == 1) {
-      // TODO(Qingqing): fix batch binary classification
-      throw new IllegalArgumentException("No support for batch binary classification at the moment")
     } else {
       super.run(input, initialWeights)
     }

@@ -19,14 +19,12 @@ package org.apache.spark.mllib.optimization
 
 import scala.collection.mutable
 
-import breeze.linalg.{DenseMatrix => BDM}
 import breeze.linalg.{DenseVector => BDV}
-import breeze.math.{EntrywiseMatrixNorms, MutableInnerProductModule}
 import breeze.optimize.{CachedDiffFunction, DiffFunction, LBFGS => BreezeLBFGS}
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
-import org.apache.spark.mllib.linalg.{DenseMatrix, DenseVector, Matrices, Matrix, SparseMatrix, Vector, Vectors}
+import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.mllib.linalg.BLAS.axpy
 import org.apache.spark.rdd.RDD
 
@@ -46,7 +44,6 @@ class LBFGS(private var gradient: Gradient, private var updater: Updater)
   private var convergenceTol = 1E-6
   private var maxNumIterations = 100
   private var regParam = 0.0
-  private var regParams : Vector = null
 
   /**
    * Set the number of corrections used in the LBFGS update. Default 10.
@@ -108,19 +105,11 @@ class LBFGS(private var gradient: Gradient, private var updater: Updater)
     this
   }
 
-  def setRegParams(regParams: Double*): this.type = {
-    this.regParams = Vectors.dense(regParams.toArray)
-    this
-  }
   /**
    * Get the regularization parameter.
    */
   private[mllib] def getRegParam(): Double = {
     this.regParam
-  }
-
-  private[mllib] def getRegParams(): Vector = {
-    this.regParams
   }
 
   /**
@@ -162,9 +151,6 @@ class LBFGS(private var gradient: Gradient, private var updater: Updater)
     weights
   }
 
-  override def optimize(data: RDD[(Double, Vector)], initialWeights: Matrix): Matrix = {
-    (null)
-  }
 }
 
 /**
@@ -237,7 +223,6 @@ object LBFGS extends Logging {
     (weights, lossHistoryArray)
   }
 
-
   /**
    * CostFun implements Breeze's DiffFunction[T], which returns the loss and gradient
    * at a particular point (weights). It's used in Breeze's convex optimization routines.
@@ -256,22 +241,20 @@ object LBFGS extends Logging {
       val bcW = data.context.broadcast(w)
       val localGradient = gradient
 
-      val seqOp = (c: (Vector, Vector), v: (Double, Vector)) =>
+      val seqOp = (c: (Vector, Double), v: (Double, Vector)) =>
         (c, v) match {
           case ((grad, loss), (label, features)) =>
             val denseGrad = grad.toDense
             val l = localGradient.compute(features, label, bcW.value, denseGrad)
-            axpy(1.0, l, loss)
-            (denseGrad, loss)
+            (denseGrad, loss + l)
         }
 
-      val combOp = (c1: (Vector, Vector), c2: (Vector, Vector)) =>
+      val combOp = (c1: (Vector, Double), c2: (Vector, Double)) =>
         (c1, c2) match { case ((grad1, loss1), (grad2, loss2)) =>
           val denseGrad1 = grad1.toDense
           val denseGrad2 = grad2.toDense
           axpy(1.0, denseGrad2, denseGrad1)
-          axpy(1.0, loss2, loss1)
-          (denseGrad1, loss1)
+          (denseGrad1, loss1 + loss2)
        }
 
       val zeroSparseVector = Vectors.sparse(n, Seq.empty)
