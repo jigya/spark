@@ -89,6 +89,10 @@ class GradientDescent private[spark] (private var gradient: Gradient, private va
     this
   }
 
+  def getRegParams(): Vector = {
+    this.regParams
+  }
+
   /**
    * Set the convergence tolerance. Default 0.001
    * convergenceTol is a condition which decides iteration termination.

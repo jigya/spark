@@ -19,7 +19,7 @@ package org.apache.spark.mllib.regression
 
 import org.apache.spark.SparkContext
 import org.apache.spark.annotation.Since
-import org.apache.spark.mllib.linalg.Vector
+import org.apache.spark.mllib.linalg.{Matrix, Vector}
 import org.apache.spark.mllib.optimization._
 import org.apache.spark.mllib.pmml.PMMLExportable
 import org.apache.spark.mllib.regression.impl.GLMRegressionModel
@@ -37,7 +37,7 @@ import org.apache.spark.rdd.RDD
 class LassoModel @Since("1.1.0") (
     @Since("1.0.0") override val weights: Vector,
     @Since("0.8.0") override val intercept: Double)
-  extends GeneralizedLinearModel(weights, intercept)
+  extends GeneralizedLinearModel(null, null, weights, intercept)
   with RegressionModel with Serializable with Saveable with PMMLExportable {
 
   override protected def predictPoint(
@@ -45,6 +45,13 @@ class LassoModel @Since("1.1.0") (
       weightMatrix: Vector,
       intercept: Double): Double = {
     weightMatrix.asBreeze.dot(dataMatrix.asBreeze) + intercept
+  }
+
+  override protected def predictPoint(
+      dataMatrix: Vector,
+      weightMatrix: Matrix,
+      intercept: Vector) = {
+    null
   }
 
   @Since("1.3.0")
@@ -112,6 +119,10 @@ class LassoWithSGD private[mllib] (
 
   override protected def createModel(weights: Vector, intercept: Double) = {
     new LassoModel(weights, intercept)
+  }
+
+  override protected def createModel(weights: Matrix, intercept: Vector) = {
+    null
   }
 }
 

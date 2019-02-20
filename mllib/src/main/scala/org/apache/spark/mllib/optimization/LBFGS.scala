@@ -24,7 +24,7 @@ import breeze.optimize.{CachedDiffFunction, DiffFunction, LBFGS => BreezeLBFGS}
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
-import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.linalg.{Matrices, Matrix, Vector, Vectors}
 import org.apache.spark.mllib.linalg.BLAS.axpy
 import org.apache.spark.rdd.RDD
 
@@ -149,6 +149,10 @@ class LBFGS(private var gradient: Gradient, private var updater: Updater)
       regParam,
       initialWeights)
     weights
+  }
+
+  override def optimize(data: RDD[(Double, Vector)], initialWeights: Matrix): Matrix = {
+    (null)
   }
 
 }
