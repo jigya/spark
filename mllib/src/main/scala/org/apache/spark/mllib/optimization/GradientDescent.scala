@@ -19,7 +19,7 @@ package org.apache.spark.mllib.optimization
 
 import scala.collection.mutable.ArrayBuffer
 
-import breeze.linalg.{BitVector, norm, DenseMatrix => BDM, DenseVector => BDV}
+import breeze.linalg.{norm, BitVector, DenseMatrix => BDM, DenseVector => BDV}
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
