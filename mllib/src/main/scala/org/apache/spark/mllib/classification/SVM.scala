@@ -20,7 +20,7 @@ package org.apache.spark.mllib.classification
 import org.apache.spark.SparkContext
 import org.apache.spark.annotation.Since
 import org.apache.spark.mllib.classification.impl.GLMClassificationModel
-import org.apache.spark.mllib.linalg.Vector
+import org.apache.spark.mllib.linalg.{Matrix, Vector}
 import org.apache.spark.mllib.optimization._
 import org.apache.spark.mllib.pmml.PMMLExportable
 import org.apache.spark.mllib.regression._
@@ -37,8 +37,8 @@ import org.apache.spark.rdd.RDD
 class SVMModel @Since("1.1.0") (
     @Since("1.0.0") override val weights: Vector,
     @Since("0.8.0") override val intercept: Double)
-  extends GeneralizedLinearModel(weights, intercept) with ClassificationModel with Serializable
-  with Saveable with PMMLExportable {
+  extends GeneralizedLinearModel(null, null, weights, intercept)
+  with ClassificationModel with Serializable with Saveable with PMMLExportable {
 
   private var threshold: Option[Double] = Some(0.0)
 
@@ -77,6 +77,14 @@ class SVMModel @Since("1.1.0") (
       case Some(t) => if (margin > t) 1.0 else 0.0
       case None => margin
     }
+  }
+
+  // TODO(Qingqing): enable batch prediction
+  override protected def predictPoint(
+      dataMatrix: Vector,
+      weightMatrix: Matrix,
+      intercept: Vector) = {
+    null
   }
 
   @Since("1.3.0")
@@ -155,6 +163,10 @@ class SVMWithSGD private (
 
   override protected def createModel(weights: Vector, intercept: Double) = {
     new SVMModel(weights, intercept)
+  }
+
+  override protected def createModel(weightMatrix: Matrix, interceptVector: Vector) = {
+    null
   }
 }
 
