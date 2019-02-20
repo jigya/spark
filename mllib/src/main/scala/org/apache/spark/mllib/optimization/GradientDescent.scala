@@ -19,7 +19,7 @@ package org.apache.spark.mllib.optimization
 
 import scala.collection.mutable.ArrayBuffer
 
-import breeze.linalg.{norm, DenseMatrix => BDM, DenseVector => BDV}
+import breeze.linalg.{BitVector, norm, DenseMatrix => BDM, DenseVector => BDV}
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
@@ -393,8 +393,8 @@ object GradientDescent extends Logging {
         previousWeights = currentWeights
         currentWeights = Some(weights)
         if (previousWeights != None && currentWeights != None) {
-          converged = isConverged(previousWeights.get,
-            currentWeights.get, convergenceTol)
+          converged = breeze.linalg.all(isConverged(previousWeights.get,
+            currentWeights.get, convergenceTol))
         }
       } else {
         logWarning(s"Iteration ($i/$numIterations). The size of sampled batch is zero")
@@ -422,18 +422,25 @@ object GradientDescent extends Logging {
 
   // TODO: JIYAD: Need to figure this out- How to return correct convergence conditions
   private def isConverged(
-       previousWeights: Matrix,
-       currentWeights: Matrix,
-       convergenceTol: Double
-       ): Boolean = {
+                           previousWeights: Matrix,
+                           currentWeights: Matrix,
+                           convergenceTol: Double
+                         ): BitVector = {
     val previousBDM = previousWeights.asBreeze.toDenseMatrix
     val currentBDM = currentWeights.asBreeze.toDenseMatrix
 
     var solutionMatDiff = previousBDM - currentBDM
     solutionMatDiff = solutionMatDiff *:* solutionMatDiff
-    val normVector = breeze.linalg.sum(solutionMatDiff, breeze.linalg.Axis._0)
+    val normDiffVector = breeze.numerics.sqrt(
+      breeze.linalg.sum(solutionMatDiff, breeze.linalg.Axis._0)).t
 
-    false
+    val squareCurrBDM = currentBDM *:* currentBDM
+    val normCurrVector = breeze.numerics.sqrt(
+      breeze.linalg.sum(squareCurrBDM, breeze.linalg.Axis._0)).t
+
+    normCurrVector.map(xi => convergenceTol * Math.max(1.0, xi))
+    val boolVector = normDiffVector <:< normCurrVector
+
+    boolVector
   }
-
 }
