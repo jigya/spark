@@ -59,24 +59,30 @@ class LogisticRegressionModel @Since("1.3.0") (
   extends GeneralizedLinearModel(weightMatrix, interceptVector, weights, intercept)
   with ClassificationModel with Serializable with Saveable with PMMLExportable {
 
-  if (numClasses == 2) {
-    require(weights.size == numFeatures,
-      s"LogisticRegressionModel with numClasses = 2 was given non-matching values:" +
-      s" numFeatures = $numFeatures, but weights.size = ${weights.size}")
-  } else {
-    val weightsSizeWithoutIntercept = (numClasses - 1) * numFeatures
-    val weightsSizeWithIntercept = (numClasses - 1) * (numFeatures + 1)
-    require(weights.size == weightsSizeWithoutIntercept || weights.size == weightsSizeWithIntercept,
-      s"LogisticRegressionModel.load with numClasses = $numClasses and numFeatures = $numFeatures" +
-      s" expected weights of length $weightsSizeWithoutIntercept (without intercept)" +
+  if (weights != null) {
+    if (numClasses == 2) {
+      require(weights.size == numFeatures,
+        s"LogisticRegressionModel with numClasses = 2 was given non-matching values:" +
+          s" numFeatures = $numFeatures, but weights.size = ${weights.size}")
+    } else {
+      val weightsSizeWithoutIntercept = (numClasses - 1) * numFeatures
+      val weightsSizeWithIntercept = (numClasses - 1) * (numFeatures + 1)
+      require(weights.size == weightsSizeWithoutIntercept ||
+      weights.size == weightsSizeWithIntercept,
+      s"LogisticRegressionModel.load with numClasses = $numClasses and numFeatures = $numFeatures"
+      + s" expected weights of length $weightsSizeWithoutIntercept (without intercept)" +
       s" or $weightsSizeWithIntercept (with intercept)," +
       s" but was given weights of length ${weights.size}")
+    }
   }
 
-  private val dataWithBiasSize: Int = weights.size / (numClasses - 1)
+  private val dataWithBiasSize: Int = if (weights != null ) {
+    weights.size / (numClasses - 1)
+  } else weightMatrix.numCols / (numClasses - 1)
 
   private val weightsArray: Array[Double] = weights match {
     case dv: DenseVector => dv.values
+    case null => null
     case _ =>
       throw new IllegalArgumentException(
         s"weights only supports dense vector but got type ${weights.getClass}.")
@@ -315,7 +321,6 @@ class LogisticRegressionWithSGD private[mllib] (
     } else {
       run(input, generateInitialWeights(input))
     }
-    run(input, generateInitialWeights(input))
   }
 }
 
