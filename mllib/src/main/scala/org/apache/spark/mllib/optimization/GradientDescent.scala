@@ -19,7 +19,7 @@ package org.apache.spark.mllib.optimization
 
 import scala.collection.mutable.ArrayBuffer
 
-import breeze.linalg.{BitVector, norm, DenseMatrix => BDM, DenseVector => BDV}
+import breeze.linalg.{norm, BitVector, DenseMatrix => BDM, DenseVector => BDV}
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
@@ -359,10 +359,13 @@ object GradientDescent extends Logging {
     val numRows = initialWeights.numRows
     val numCols = initialWeights.numCols
     var weights = Matrices.dense(numRows, numCols, initialWeights.toArray)
+//    var finalWeights = Matrices.zeros(numRows, numCols).asBreeze
+    var finalWeights = breeze.linalg.DenseMatrix.zeros[Double](numRows, numCols)
     var regVal = updater.compute(
       weights, Matrices.zeros(weights.numRows, weights.numCols), 0, 1, regParam)._2
 
     var converged = false
+    val convergedWeightsIdx = scala.collection.mutable.SortedSet[Int]()
     var i = 1
 
     while (!converged && i <= numIterations) {
@@ -389,8 +392,17 @@ object GradientDescent extends Logging {
         previousWeights = currentWeights
         currentWeights = Some(weights)
         if (previousWeights != None && currentWeights != None) {
+          val convergedMat = isConverged(previousWeights.get,
+            currentWeights.get, convergenceTol)
           converged = breeze.linalg.all(isConverged(previousWeights.get,
             currentWeights.get, convergenceTol))
+          var denseWeights = (weights.asBreeze.toDenseMatrix)
+          convergedMat.foreachPair{ (i, v) =>
+            if (v && !convergedWeightsIdx.contains(i)) {
+              convergedWeightsIdx += i
+              finalWeights(::, i) := denseWeights(::, i)
+            }
+          }
         }
       } else {
         logWarning(s"Iteration ($i/$numIterations). The size of sampled batch is zero")
@@ -398,7 +410,7 @@ object GradientDescent extends Logging {
       i += 1
     }
 
-    weights
+    Matrices.fromBreeze(finalWeights)
   }
 
 
