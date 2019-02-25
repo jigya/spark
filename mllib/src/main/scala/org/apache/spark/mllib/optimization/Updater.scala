@@ -208,12 +208,16 @@ class SquaredL2Updater extends Updater {
     val regParamBDV = regParam.asBreeze.toDenseVector
     brzWeights :*= tile(BDV.ones[Double](weightsOld.numRows) -
       regParamBDV * thisIterStepSize, 1, weightsOld.numCols)
+    print(brzWeights.rows)
+    print(brzWeights.cols)
     brzWeights :-= thisIterStepSize * gradient.asBreeze.toDenseMatrix
     // Qingqing: Normalize the weight matrix by normalizing each col
-    val brzWeightSquare = (brzWeights *:* brzWeights).t.asInstanceOf[DenseMatrix[Double]]
-    val norm = breeze.linalg.sum(brzWeightSquare, breeze.linalg.Axis._0).
+    // JIYAD: Why are we using a transpose here? I think we should just
+    // be summing across the columns
+    val brzWeightSquare = (brzWeights *:* brzWeights).toDenseMatrix
+    val norm = (breeze.linalg.sum(brzWeightSquare, breeze.linalg.Axis._1)).
       asInstanceOf[DenseVector[Double]]
-    (Matrices.fromBreeze(brzWeights), Vectors.fromBreeze(0.5 * regParamBDV *:* norm *:* norm))
+    (Matrices.fromBreeze(brzWeights), Vectors.fromBreeze(0.5 * regParamBDV *:* norm))
   }
 }
 

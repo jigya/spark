@@ -20,6 +20,7 @@ package org.apache.spark.mllib.optimization
 import scala.collection.mutable.ArrayBuffer
 
 import breeze.linalg.{norm, BitVector, DenseMatrix => BDM, DenseVector => BDV}
+import org.apache.log4j.{Level, LogManager}
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.internal.Logging
@@ -331,6 +332,13 @@ object GradientDescent extends Logging {
        miniBatchFraction: Double,
        initialWeights: Matrix,
        convergenceTol: Double) : Matrix = {
+
+    val log = LogManager.getRootLogger
+    log.setLevel(Level.WARN)
+    var msg1 = printf("The initial weight matrix in runMiniBatchSGD has size: %d %d",
+      initialWeights.numRows, initialWeights.numCols)
+    log.warn(msg1)
+
     // convergenceTol should be set with non minibatch settings
     if (miniBatchFraction < 1.0 && convergenceTol > 0.0) {
       logWarning("Testing against a convergenceTol when using miniBatchFraction " +
@@ -363,8 +371,10 @@ object GradientDescent extends Logging {
     val numRows = initialWeights.numRows
     val numCols = initialWeights.numCols
     var weights = Matrices.dense(numRows, numCols, initialWeights.toArray)
-//    var finalWeights = Matrices.zeros(numRows, numCols).asBreeze
     var finalWeights = breeze.linalg.DenseMatrix.zeros[Double](numRows, numCols)
+    msg1 = printf("The final weight matrix in runMiniBatchSGD has size: %d %d",
+      finalWeights.rows, finalWeights.cols)
+    log.warn(msg1)
     var regVal = updater.compute(
       weights, Matrices.zeros(weights.numRows, weights.numCols), 0, 1, regParam)._2
 
@@ -375,7 +385,7 @@ object GradientDescent extends Logging {
     while (!converged && i <= numIterations) {
       val bcWeights = data.context.broadcast(weights)
       val (gradientSum, lossSum, miniBatchSize) = data.sample(false, miniBatchFraction, 42 + i)
-        .treeAggregate((BDM.zeros[Double](numRows, numCols), BDV.zeros[Double](numCols), 0L))(
+        .treeAggregate((BDM.zeros[Double](numRows, numCols), BDV.zeros[Double](numRows), 0L))(
           seqOp = (c, v) => {
             // c: (grad, loss, count), v: (label, features)
             val l = gradient.compute(v._2, v._1, bcWeights.value, Matrices.fromBreeze(c._1))
@@ -398,13 +408,12 @@ object GradientDescent extends Logging {
         if (previousWeights != None && currentWeights != None) {
           val convergedMat = isConverged(previousWeights.get,
             currentWeights.get, convergenceTol)
-          converged = breeze.linalg.all(isConverged(previousWeights.get,
-            currentWeights.get, convergenceTol))
+          converged = breeze.linalg.all(convergedMat)
           var denseWeights = (weights.asBreeze.toDenseMatrix)
           convergedMat.foreachPair{ (i, v) =>
             if (v && !convergedWeightsIdx.contains(i)) {
               convergedWeightsIdx += i
-              finalWeights(::, i) := denseWeights(::, i)
+              finalWeights(i, ::) := denseWeights(i, ::)
             }
           }
         }
@@ -444,11 +453,11 @@ object GradientDescent extends Logging {
     var solutionMatDiff = previousBDM - currentBDM
     solutionMatDiff = solutionMatDiff *:* solutionMatDiff
     val normDiffVector = breeze.numerics.sqrt(
-      breeze.linalg.sum(solutionMatDiff, breeze.linalg.Axis._0)).t
+      breeze.linalg.sum(solutionMatDiff, breeze.linalg.Axis._1))
 
     val squareCurrBDM = currentBDM *:* currentBDM
     val normCurrVector = breeze.numerics.sqrt(
-      breeze.linalg.sum(squareCurrBDM, breeze.linalg.Axis._0)).t
+      breeze.linalg.sum(squareCurrBDM, breeze.linalg.Axis._1))
 
     normCurrVector.map(xi => convergenceTol * Math.max(1.0, xi))
     val boolVector = normDiffVector <:< normCurrVector

@@ -315,7 +315,6 @@ class LogisticRegressionWithSGD private[mllib] (
     } else {
       run(input, generateInitialWeights(input))
     }
-    run(input, generateInitialWeights(input))
   }
 }
 

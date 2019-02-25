@@ -19,6 +19,8 @@
 
 package org.apache.spark.mllib.optimization
 
+import org.apache.log4j.{Level, LogManager}
+
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.mllib.linalg.{DenseVector, Matrices, Matrix, Vector, Vectors}
 import org.apache.spark.mllib.linalg.BLAS.{axpy, dot, scal}
@@ -296,51 +298,107 @@ class LogisticGradient(numClasses: Int) extends Gradient {
     }
   }
 
-  // TODO: JIYAD: Remove all the for loops
+  // Transposed version similar to QingQing's version of w*d.
+  // where d is the number of w of weights and d is the number of features
   override def compute(
       data: Vector,
       label: Double,
       weights: Matrix,
       cumGradient: Matrix): Vector = {
     val dataSize = data.size
-    require(weights.numRows % dataSize == 0 && numClasses == weights.numRows / dataSize + 1)
+    val log = LogManager.getRootLogger
+    log.setLevel(Level.WARN)
 
     numClasses match {
       case 2 =>
-        // Margin will be size w*1
-        val margin = weights.transpose.multiply(data)
-        scal(-1, margin)
-//        val multiplier = Vectors.zeros(margin.size)
-        val multiplier = Matrices.zeros(margin.size, 1)
-        //  Multiplier will be size w*1
-        margin.foreachActive { (index, value) =>
-          multiplier.update(index, 0, (1.0 / (1.0 + math.exp(value))) - label)
-//          multiplier.toArray(index) = (1.0 / (1.0 + math.exp(value))) - label
-        }
 
-        // cumGradient += multiplier*data
-//        val mat1 = data.asBreeze.
-//        val mat2 = multiplier.asBreeze
-        val prod = (data.asBreeze.toDenseVector.asDenseMatrix)*(multiplier.asBreeze.toDenseMatrix)
-//        val prod = Vectors.fromBreeze(data.asBreeze.dot(multiplier.asBreeze))
-//        val cumGradientBreeze = cumGradient.asBreeze
-//        val updatedCumGradient = Matrices.fromBreeze(cumGradientBreeze + prod)
+        // w*1
+        var margin = weights.multiply(data)
+        var msg1 = printf("The size of the margin in compute in Gradient.scala is %d\n",
+          margin.size)
+        log.warn(msg1)
+
+        scal(-1, margin)
+        var multiplier = breeze.numerics.exp(margin.asBreeze)
+        multiplier :+= 1.0
+        multiplier = multiplier.mapValues(v => (1.0 / v) - label)
+        msg1 = printf("The size of the multiplier in compute in Gradient.scala is %d\n",
+          multiplier.size)
+        log.warn(msg1)
+        log.warn("Hello")
+        val multMat = multiplier.toDenseVector.asDenseMatrix.t
+        val dataMat = data.asBreeze.toDenseVector.asDenseMatrix
+        msg1 = printf("The size of the multMat and the dataMat in compute in Gradient.scala " +
+          " is %d %d %d %d\n", multMat.rows, multMat.cols, dataMat.rows, dataMat.cols)
+        log.warn(msg1)
+        val prod = multMat * dataMat
+        // TODO: JIYAD: Figure out how to remove the for loop
         cumGradient.foreachActive { (i, j, value) =>
           cumGradient.update(i, j, prod(i, j))
         }
-
+        var retMargin = Vectors.zeros(1)
         if (label > 0) {
-          margin.foreachActive { (i, v) =>
-            margin.toArray(i) = MLUtils.log1pExp(v)
-          }
+          retMargin = Vectors.fromBreeze(margin.asBreeze.mapValues(v => MLUtils.log1pExp(v)))
         } else {
-          margin.foreachActive { (i, v) =>
-            margin.toArray(i) = MLUtils.log1pExp(v) - v
-          }
+          retMargin = Vectors.fromBreeze(margin.asBreeze.mapValues(v => (MLUtils.log1pExp(v) - v)))
         }
-        margin
+        retMargin
     }
   }
+
+//  // TODO: JIYAD: Remove all the for loops
+//  override def compute(
+//      data: Vector,
+//      label: Double,
+//      weights1: Matrix,
+//      cumGradient: Matrix): Vector = {
+//    val dataSize = data.size
+//
+//    print("Hello")
+//    // scalastyle:off println
+//    println(weights1.numRows)
+//    println(weights1.numCols)
+//    // scalastyle:on println line=310 column=4
+//    require(weights.numRows % dataSize == 0 && numClasses == weights.numRows / dataSize + 1)
+//    require(weights.numCols % dataSize == 0 && numClasses == weights.numRows / dataSize + 1)
+//
+//    var weights = weights1.transpose
+//    numClasses match {
+//      case 2 =>
+//        // Margin will be size w*1
+//        val margin = weights.transpose.multiply(data)
+//        scal(-1, margin)
+//        val multiplier = Vectors.zeros(margin.size)
+//        val multiplier = Matrices.zeros(margin.size, 1)
+//        //  Multiplier will be size w*1
+//        margin.foreachActive { (index, value) =>
+//          multiplier.update(index, 0, (1.0 / (1.0 + math.exp(value))) - label)
+//          multiplier.toArray(index) = (1.0 / (1.0 + math.exp(value))) - label
+//        }
+//
+//        // cumGradient += multiplier*data
+//        val mat1 = data.asBreeze.
+//        val mat2 = multiplier.asBreeze
+//        val prod = (data.asBreeze.toDenseVector.asDenseMatrix)*(multiplier.asBreeze.toDenseMatrix)
+//        val prod = Vectors.fromBreeze(data.asBreeze.dot(multiplier.asBreeze))
+//        val cumGradientBreeze = cumGradient.asBreeze
+//        val updatedCumGradient = Matrices.fromBreeze(cumGradientBreeze + prod)
+//        cumGradient.foreachActive { (i, j, value) =>
+//          cumGradient.update(i, j, prod(i, j))
+//        }
+//
+//        if (label > 0) {
+//          margin.foreachActive { (i, v) =>
+//            margin.toArray(i) = MLUtils.log1pExp(v)
+//          }
+//        } else {
+//          margin.foreachActive { (i, v) =>
+//            margin.toArray(i) = MLUtils.log1pExp(v) - v
+//          }
+//        }
+//        margin
+//    }
+//  }
 }
 
 /**
