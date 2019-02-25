@@ -67,18 +67,6 @@ abstract class GeneralizedLinearModel @Since("1.0.0") (
    */
   @Since("1.0.0")
   def predict(testData: RDD[Vector]): RDD[Double] = {
-    // A small optimization to avoid serializing the entire model. Only the weightsMatrix
-    // and intercept is needed.
-    if (weightMatrix != null) {
-      val localWeights = weightMatrix
-      val bcWeights = testData.context.broadcast(localWeights)
-      val localIntercept = interceptVector
-      testData.mapPartitions { iter =>
-        val w = bcWeights.value
-        iter.map(v => predictPoint(v, w, localIntercept))
-      }
-
-    }
     val localWeights = weights
     val bcWeights = testData.context.broadcast(localWeights)
     val localIntercept = intercept
@@ -98,6 +86,20 @@ abstract class GeneralizedLinearModel @Since("1.0.0") (
   @Since("1.0.0")
   def predict(testData: Vector): Double = {
     predictPoint(testData, weights, intercept)
+  }
+
+  def batchPredict(testData: RDD[Vector]): RDD[Vector] = {
+      val localWeights = weightMatrix
+      val bcWeights = testData.context.broadcast(localWeights)
+      val localIntercept = interceptVector
+      testData.mapPartitions { iter =>
+        val w = bcWeights.value
+        iter.map(v => predictPoint(v, w, localIntercept))
+      }
+  }
+
+  def batchPredict(testData: Vector): Vector = {
+    predictPoint(testData, weightMatrix, interceptVector)
   }
 
   /**
