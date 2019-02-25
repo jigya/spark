@@ -131,6 +131,7 @@ abstract class GeneralizedLinearAlgorithm[M <: GeneralizedLinearModel]
   /** Whether to add intercept (default: false). */
   protected var addIntercept: Boolean = false
 
+  // Right now validates when the input label is binary
   protected var validateData: Boolean = true
 
   /**
