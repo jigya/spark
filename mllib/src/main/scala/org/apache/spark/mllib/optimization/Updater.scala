@@ -210,9 +210,10 @@ class SquaredL2Updater extends Updater {
       regParamBDV * thisIterStepSize, 1, weightsOld.numCols)
     brzWeights :-= thisIterStepSize * gradient.asBreeze.toDenseMatrix
     // Qingqing: Normalize the weight matrix by normalizing each col
-    val brzWeightSquare = (brzWeights *:* brzWeights).t.asInstanceOf[DenseMatrix[Double]]
-    val norm = breeze.linalg.sum(brzWeightSquare, breeze.linalg.Axis._0).
+    val brzWeightSquare = (brzWeights *:* brzWeights).asInstanceOf[DenseMatrix[Double]]
+    val norm = breeze.linalg.sum(brzWeightSquare, breeze.linalg.Axis._1).
       asInstanceOf[DenseVector[Double]]
+    norm.foreach(e => sqrt(e))
     (Matrices.fromBreeze(brzWeights), Vectors.fromBreeze(0.5 * regParamBDV *:* norm *:* norm))
   }
 }
