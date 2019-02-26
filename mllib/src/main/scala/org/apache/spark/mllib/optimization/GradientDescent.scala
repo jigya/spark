@@ -252,6 +252,8 @@ object GradientDescent extends Logging {
      */
     var regVal = updater.compute(
       weights, Vectors.zeros(weights.size), 0, 1, regParam)._2
+    logInfo("Qingqing: the computed regVal: " + s"regVal=$regVal")
+
 
     var converged = false // indicates whether converged based on convergenceTol
     var i = 1
@@ -377,6 +379,9 @@ object GradientDescent extends Logging {
     log.warn(msg1)
     var regVal = updater.compute(
       weights, Matrices.zeros(weights.numRows, weights.numCols), 0, 1, regParam)._2
+    regVal.foreachActive{(index, value) =>
+      logInfo("Qingqing: the computed regVal: " + s"regVal=$value")
+    }
 
     var converged = false
     val convergedWeightsIdx = scala.collection.mutable.SortedSet[Int]()
@@ -402,6 +407,8 @@ object GradientDescent extends Logging {
           stepSize, i, regParam)
         weights = update._1
         regVal = update._2
+        regVal.foreachActive{(index, value) =>
+          logInfo("Qingqing: the computed reVal: " + s"regVal=$value")}
 
         previousWeights = currentWeights
         currentWeights = Some(weights)
