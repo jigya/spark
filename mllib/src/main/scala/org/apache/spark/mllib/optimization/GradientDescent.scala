@@ -309,6 +309,7 @@ object GradientDescent extends Logging {
           stepSize, i, regParam)
         weights = update._1
         regVal = update._2
+        logInfo("Qingqing: the computed regVal: " + s"regVal=$regVal")
 
         previousWeights = currentWeights
         currentWeights = Some(weights)
