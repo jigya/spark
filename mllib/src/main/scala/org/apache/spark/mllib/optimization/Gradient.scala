@@ -314,23 +314,24 @@ class LogisticGradient(numClasses: Int) extends Gradient {
 
         // w*1
         var margin = weights.multiply(data)
-        var msg1 = printf("The size of the margin in compute in Gradient.scala is %d\n",
-          margin.size)
-        log.warn(msg1)
+//        var msg1 = printf("The size of the margin in compute in Gradient.scala is %d\n",
+//          margin.size)
+//        log.warn(msg1)
 
         scal(-1, margin)
         var multiplier = breeze.numerics.exp(margin.asBreeze)
         multiplier :+= 1.0
         multiplier = multiplier.mapValues(v => (1.0 / v) - label)
-        msg1 = printf("The size of the multiplier in compute in Gradient.scala is %d\n",
-          multiplier.size)
-        log.warn(msg1)
+//        msg1 = printf("The size of the multiplier in compute in Gradient.scala is %d\n",
+//          multiplier.size)
+//        log.warn(msg1)
         log.warn("Hello")
         val multMat = multiplier.toDenseVector.asDenseMatrix.t
         val dataMat = data.asBreeze.toDenseVector.asDenseMatrix
-        msg1 = printf("The size of the multMat and the dataMat in compute in Gradient.scala " +
-          " is %d %d %d %d\n", multMat.rows, multMat.cols, dataMat.rows, dataMat.cols)
-        log.warn(msg1)
+//        var msg1 = printf("The size of the multMat and the dataMat in compute in
+//          Gradient.scala " +
+//          " is %d %d %d %d\n", multMat.rows, multMat.cols, dataMat.rows, dataMat.cols)
+//        log.warn(msg1)
         val prod = multMat * dataMat
         // TODO: JIYAD: Figure out how to remove the for loop
         cumGradient.foreachActive { (i, j, value) =>
@@ -341,6 +342,14 @@ class LogisticGradient(numClasses: Int) extends Gradient {
           retMargin = Vectors.fromBreeze(margin.asBreeze.mapValues(v => MLUtils.log1pExp(v)))
         } else {
           retMargin = Vectors.fromBreeze(margin.asBreeze.mapValues(v => (MLUtils.log1pExp(v) - v)))
+        }
+        retMargin.foreachActive { (index, value) =>
+          var msg1 = printf("Value of ret margin is %d %f\n", index, value)
+          log.warn(msg1)
+        }
+        cumGradient.foreachActive { (i, j, value) =>
+          var msg1 = printf("Value of cumGradient is %d %d %f\n", i, j, value)
+          log.warn(msg1)
         }
         retMargin
     }

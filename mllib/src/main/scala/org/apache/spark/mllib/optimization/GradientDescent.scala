@@ -143,6 +143,11 @@ class GradientDescent private[spark] (private var gradient: Gradient, private va
    */
   @DeveloperApi
   def optimize(data: RDD[(Double, Vector)], initialWeights: Vector): Vector = {
+    val log = LogManager.getRootLogger
+    initialWeights.foreachActive{ (index, value) =>
+      var msg1 = printf("Initial Weight value in optimize at %d %d %f\n", index, value)
+      log.warn(msg1)
+    }
     val (weights, _) = GradientDescent.runMiniBatchSGD(
       data,
       gradient,
@@ -153,10 +158,19 @@ class GradientDescent private[spark] (private var gradient: Gradient, private va
       miniBatchFraction,
       initialWeights,
       convergenceTol)
+    weights.foreachActive{ (index, value) =>
+      var msg1 = printf("Final Weight value in optimize at %d %d %f\n", index, value)
+      log.warn(msg1)
+    }
     weights
   }
 
   def optimize(data: RDD[(Double, Vector)], initialWeights: Matrix): Matrix = {
+    val log = LogManager.getRootLogger
+    initialWeights.foreachActive{ (i, j, value) =>
+      var msg1 = printf("Initial Weight value in optimize at %d %d %f\n", i, j, value)
+      log.warn(msg1)
+    }
     val (weights) = GradientDescent.runMiniBatchSGD(
       data,
       gradient,
@@ -167,6 +181,11 @@ class GradientDescent private[spark] (private var gradient: Gradient, private va
       miniBatchFraction,
       initialWeights,
       convergenceTol)
+
+    weights.foreachActive{ (i, j, value) =>
+      var msg1 = printf("Weight value in optimize at %d %d %f\n", i, j, value)
+      log.warn(msg1)
+    }
     weights
   }
 }
@@ -255,6 +274,7 @@ object GradientDescent extends Logging {
 
     var converged = false // indicates whether converged based on convergenceTol
     var i = 1
+    val log = LogManager.getRootLogger
     while (!converged && i <= numIterations) {
       val bcWeights = data.context.broadcast(weights)
       // Sample a subset (fraction miniBatchFraction) of the total data
@@ -271,6 +291,10 @@ object GradientDescent extends Logging {
             (c1._1 += c2._1, c1._2 + c2._2, c1._3 + c2._3)
           })
       bcWeights.destroy(blocking = false)
+
+      var msg1 = printf("Value of the lossSum in iteration: %d is %f %f\n", i, lossSum,
+        lossSum/miniBatchSize)
+      log.warn(msg1)
 
       if (miniBatchSize > 0) {
         /**
@@ -335,9 +359,9 @@ object GradientDescent extends Logging {
 
     val log = LogManager.getRootLogger
     log.setLevel(Level.WARN)
-    var msg1 = printf("The initial weight matrix in runMiniBatchSGD has size: %d %d",
-      initialWeights.numRows, initialWeights.numCols)
-    log.warn(msg1)
+//    var msg1 = printf("The initial weight matrix in runMiniBatchSGD has size: %d %d",
+//      initialWeights.numRows, initialWeights.numCols)
+//    log.warn(msg1)
 
     // convergenceTol should be set with non minibatch settings
     if (miniBatchFraction < 1.0 && convergenceTol > 0.0) {
@@ -372,9 +396,9 @@ object GradientDescent extends Logging {
     val numCols = initialWeights.numCols
     var weights = Matrices.dense(numRows, numCols, initialWeights.toArray)
     var finalWeights = breeze.linalg.DenseMatrix.zeros[Double](numRows, numCols)
-    msg1 = printf("The final weight matrix in runMiniBatchSGD has size: %d %d",
-      finalWeights.rows, finalWeights.cols)
-    log.warn(msg1)
+//    msg1 = printf("The final weight matrix in runMiniBatchSGD has size: %d %d",
+//      finalWeights.rows, finalWeights.cols)
+//    log.warn(msg1)
     var regVal = updater.compute(
       weights, Matrices.zeros(weights.numRows, weights.numCols), 0, 1, regParam)._2
 
@@ -382,7 +406,9 @@ object GradientDescent extends Logging {
     val convergedWeightsIdx = scala.collection.mutable.SortedSet[Int]()
     var i = 1
 
-    while (!converged && i <= numIterations) {
+    while (i <= 3000) {
+//      msg1 = printf("Running iteration: %d", i)
+//      log.warn(msg1)
       val bcWeights = data.context.broadcast(weights)
       val (gradientSum, lossSum, miniBatchSize) = data.sample(false, miniBatchFraction, 42 + i)
         .treeAggregate((BDM.zeros[Double](numRows, numCols), BDV.zeros[Double](numRows), 0L))(
@@ -395,6 +421,11 @@ object GradientDescent extends Logging {
             (c1._1 += c2._1, c1._2 + c2._2, c1._3 + c2._3)
           })
       bcWeights.destroy(blocking = false)
+      var msg1 = printf("GradientDescent: The mini batch size is %d\n", miniBatchSize)
+      log.warn(msg1)
+      msg1 = printf("GradientDescent: Random values of the loss sum are %f %f\n",
+        lossSum.apply(0), lossSum.apply(1))
+      log.warn(msg1)
 
       if (miniBatchSize > 0) {
         val update = updater.compute(
@@ -402,6 +433,8 @@ object GradientDescent extends Logging {
           stepSize, i, regParam)
         weights = update._1
         regVal = update._2
+        var msg1 = printf("The weight is: %f %f\n", weights.apply(0, 0), weights.apply(0, 120))
+        log.warn(msg1)
 
         previousWeights = currentWeights
         currentWeights = Some(weights)
@@ -409,6 +442,10 @@ object GradientDescent extends Logging {
           val convergedMat = isConverged(previousWeights.get,
             currentWeights.get, convergenceTol)
           converged = breeze.linalg.all(convergedMat)
+          if (converged) {
+            msg1 = printf("We converged after %d\n", i)
+            log.warn(msg1)
+          }
           var denseWeights = (weights.asBreeze.toDenseMatrix)
           convergedMat.foreachPair{ (i, v) =>
             if (v && !convergedWeightsIdx.contains(i)) {
@@ -423,7 +460,8 @@ object GradientDescent extends Logging {
       i += 1
     }
 
-    Matrices.fromBreeze(finalWeights)
+//    Matrices.fromBreeze(finalWeights)
+    weights
   }
 
 

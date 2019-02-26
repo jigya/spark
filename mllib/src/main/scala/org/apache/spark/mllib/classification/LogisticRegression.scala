@@ -19,6 +19,7 @@ package org.apache.spark.mllib.classification
 
 import breeze.linalg._
 import breeze.numerics._
+import org.apache.log4j.{Level, LogManager}
 
 import org.apache.spark.SparkContext
 import org.apache.spark.annotation.Since
@@ -312,6 +313,9 @@ class LogisticRegressionWithSGD private[mllib] (
   }
 
   override protected[mllib] def createModel(weightMatrix: Matrix, interceptVector: Vector) = {
+    val log = LogManager.getRootLogger
+    log.setLevel(Level.WARN)
+    log.warn("Hey Hey")
     new LogisticRegressionModel(weightMatrix = weightMatrix, interceptVector = interceptVector)
   }
 
