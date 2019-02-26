@@ -22,7 +22,7 @@ package org.apache.spark.mllib.optimization
 import org.apache.log4j.{Level, LogManager}
 
 import org.apache.spark.annotation.DeveloperApi
-import org.apache.spark.mllib.linalg.{DenseVector, Matrices, Matrix, Vector, Vectors}
+import org.apache.spark.mllib.linalg.{DenseMatrix, DenseVector, Matrices, Matrix, Vector, Vectors}
 import org.apache.spark.mllib.linalg.BLAS.{axpy, dot, scal}
 import org.apache.spark.mllib.util.MLUtils
 
@@ -306,8 +306,8 @@ class LogisticGradient(numClasses: Int) extends Gradient {
       weights: Matrix,
       cumGradient: Matrix): Vector = {
     val dataSize = data.size
-    val log = LogManager.getRootLogger
-    log.setLevel(Level.WARN)
+//    val log = LogManager.getRootLogger
+//    log.setLevel(Level.WARN)
 
     numClasses match {
       case 2 =>
@@ -325,7 +325,7 @@ class LogisticGradient(numClasses: Int) extends Gradient {
 //        msg1 = printf("The size of the multiplier in compute in Gradient.scala is %d\n",
 //          multiplier.size)
 //        log.warn(msg1)
-        log.warn("Hello")
+//        log.warn("Hello")
         val multMat = multiplier.toDenseVector.asDenseMatrix.t
         val dataMat = data.asBreeze.toDenseVector.asDenseMatrix
 //        var msg1 = printf("The size of the multMat and the dataMat in compute in
@@ -334,23 +334,26 @@ class LogisticGradient(numClasses: Int) extends Gradient {
 //        log.warn(msg1)
         val prod = multMat * dataMat
         // TODO: JIYAD: Figure out how to remove the for loop
-        cumGradient.foreachActive { (i, j, value) =>
-          cumGradient.update(i, j, prod(i, j))
-        }
+//        cumGradient.foreachActive { (i, j, value) =>
+//          cumGradient.update(i, j, value + prod(i, j))
+//        }
+        val prodDense = new DenseMatrix(prod.rows,
+          prod.cols, prod.data, prod.isTranspose)
+        axpy(1, prodDense, cumGradient.asInstanceOf[DenseMatrix])
         var retMargin = Vectors.zeros(1)
         if (label > 0) {
           retMargin = Vectors.fromBreeze(margin.asBreeze.mapValues(v => MLUtils.log1pExp(v)))
         } else {
           retMargin = Vectors.fromBreeze(margin.asBreeze.mapValues(v => (MLUtils.log1pExp(v) - v)))
         }
-        retMargin.foreachActive { (index, value) =>
-          var msg1 = printf("Value of ret margin is %d %f\n", index, value)
-          log.warn(msg1)
-        }
-        cumGradient.foreachActive { (i, j, value) =>
-          var msg1 = printf("Value of cumGradient is %d %d %f\n", i, j, value)
-          log.warn(msg1)
-        }
+//        retMargin.foreachActive { (index, value) =>
+//          var msg1 = printf("Value of ret margin is %d %f\n", index, value)
+//          log.warn(msg1)
+//        }
+//        cumGradient.foreachActive { (i, j, value) =>
+//          var msg1 = printf("Value of cumGradient is %d %d %f\n", i, j, value)
+//          log.warn(msg1)
+//        }
         retMargin
     }
   }
