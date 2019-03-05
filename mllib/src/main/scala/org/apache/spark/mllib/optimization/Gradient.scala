@@ -23,7 +23,7 @@ import org.apache.log4j.{Level, LogManager}
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.mllib.linalg.{DenseMatrix, DenseVector, Matrices, Matrix, Vector, Vectors}
-import org.apache.spark.mllib.linalg.BLAS.{axpy, dot, scal}
+import org.apache.spark.mllib.linalg.BLAS.{axpy, dot, gemm, scal}
 import org.apache.spark.mllib.util.MLUtils
 
 /**
@@ -197,6 +197,9 @@ class LogisticGradient(numClasses: Int) extends Gradient {
       label: Double,
       weights: Vector,
       cumGradient: Vector): Double = {
+
+//    val log = LogManager.getRootLogger
+//    val t1 = System.nanoTime()
     val dataSize = data.size
 
     // (weights.size / dataSize + 1) is number of classes
@@ -210,15 +213,37 @@ class LogisticGradient(numClasses: Int) extends Gradient {
          * and multinomial one can also be used in binary case, we still implement a specialized
          * binary version for performance reason.
          */
+//        val t_1 = System.nanoTime()
         val margin = -1.0 * dot(data, weights)
+//        val t_2 = System.nanoTime()
         val multiplier = (1.0 / (1.0 + math.exp(margin))) - label
+//        val t_3 = System.nanoTime()
         axpy(multiplier, data, cumGradient)
+//        val t_4 = System.nanoTime()
+        var retVal = 1.0
         if (label > 0) {
           // The following is equivalent to log(1 + exp(margin)) but more numerically stable.
-          MLUtils.log1pExp(margin)
+          retVal = MLUtils.log1pExp(margin)
         } else {
-          MLUtils.log1pExp(margin) - margin
+          retVal = MLUtils.log1pExp(margin) - margin
         }
+//        val t_5 = System.nanoTime()
+
+//        val t2 = System.nanoTime()
+//        log.warn(s"Time taken in gradient computation is: ${t2-t1}")
+//        log.warn(s"Time taken in margin computation is: ${t_2-t_1}, " +
+//          s"multiplier computation is ${t_3-t_2}" +
+//          s"updating cumGradient is ${t_4-t_3}" +
+//          s"retMargin computation is ${t_5-t_4}")
+
+        retVal
+
+//        if (label > 0) {
+//          // The following is equivalent to log(1 + exp(margin)) but more numerically stable.
+//          MLUtils.log1pExp(margin)
+//        } else {
+//          MLUtils.log1pExp(margin) - margin
+//        }
       case _ =>
         /**
          * For Multinomial Logistic Regression.
@@ -298,62 +323,53 @@ class LogisticGradient(numClasses: Int) extends Gradient {
     }
   }
 
-  // Transposed version similar to QingQing's version of w*d.
-  // where d is the number of w of weights and d is the number of features
+  // Version without conversion to Breeze
   override def compute(
       data: Vector,
       label: Double,
       weights: Matrix,
       cumGradient: Matrix): Vector = {
-    val dataSize = data.size
+
 //    val log = LogManager.getRootLogger
-//    log.setLevel(Level.WARN)
+//    val t1 = System.nanoTime()
+    val dataSize = data.size
 
     numClasses match {
       case 2 =>
-
+        val numWeights = weights.numRows
+        val numFeatures = weights.numCols
         // w*1
-        var margin = weights.multiply(data)
-//        var msg1 = printf("The size of the margin in compute in Gradient.scala is %d\n",
-//          margin.size)
-//        log.warn(msg1)
 
-        scal(-1, margin)
-        var multiplier = breeze.numerics.exp(margin.asBreeze)
-        multiplier :+= 1.0
-        multiplier = multiplier.mapValues(v => (1.0 / v) - label)
-//        msg1 = printf("The size of the multiplier in compute in Gradient.scala is %d\n",
-//          multiplier.size)
-//        log.warn(msg1)
-//        log.warn("Hello")
-        val multMat = multiplier.toDenseVector.asDenseMatrix.t
-        val dataMat = data.asBreeze.toDenseVector.asDenseMatrix
-//        var msg1 = printf("The size of the multMat and the dataMat in compute in
-//          Gradient.scala " +
-//          " is %d %d %d %d\n", multMat.rows, multMat.cols, dataMat.rows, dataMat.cols)
-//        log.warn(msg1)
-        val prod = multMat * dataMat
-        // TODO: JIYAD: Figure out how to remove the for loop
-//        cumGradient.foreachActive { (i, j, value) =>
-//          cumGradient.update(i, j, value + prod(i, j))
-//        }
-        val prodDense = new DenseMatrix(prod.rows,
-          prod.cols, prod.data, prod.isTranspose)
-        axpy(1, prodDense, cumGradient.asInstanceOf[DenseMatrix])
+//        val t_1 = System.nanoTime()
+        var margin = weights.multiply(data)
+        scal(-1.0, margin)
+//        val t_2 = System.nanoTime()
+
+        val multiplier = Matrices.zeros(numWeights, 1)
+        margin.foreachActive { (index, value) =>
+          multiplier.update(index, 0, (1.0 / (1.0 + math.exp(value))) - label)
+        }
+//        val t_3 = System.nanoTime()
+
+        val dataMat = new DenseMatrix(1, numFeatures, data.toArray)
+        gemm(1, multiplier, dataMat, 1, cumGradient.asInstanceOf[DenseMatrix])
+//        val t_4 = System.nanoTime()
+
         var retMargin = Vectors.zeros(1)
         if (label > 0) {
           retMargin = Vectors.fromBreeze(margin.asBreeze.mapValues(v => MLUtils.log1pExp(v)))
         } else {
           retMargin = Vectors.fromBreeze(margin.asBreeze.mapValues(v => (MLUtils.log1pExp(v) - v)))
         }
-//        retMargin.foreachActive { (index, value) =>
-//          var msg1 = printf("Value of ret margin is %d %f\n", index, value)
-//          log.warn(msg1)
-//        }
-//        cumGradient.foreachActive { (i, j, value) =>
-//          var msg1 = printf("Value of cumGradient is %d %d %f\n", i, j, value)
-//          log.warn(msg1)
-//        }
+//        val t_5 = System.nanoTime()
+
+//        val t2 = System.nanoTime()
+//        log.warn(s"Time taken in gradient computation is: ${t2-t1}")
+//        log.warn(s"Time taken in margin computation is: ${t_2-t_1}, " +
+//          s"multiplier computation is ${t_3-t_2}" +
+//          s"updating cumGradient is ${t_4-t_3}" +
+//          s"retMargin computation is ${t_5-t_4}")
+
         retMargin
     }
   }

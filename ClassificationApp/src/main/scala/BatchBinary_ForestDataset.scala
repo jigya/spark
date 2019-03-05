@@ -50,7 +50,11 @@ object ForestBinaryBatchClassification {
       org.apache.spark.mllib.linalg.Vectors.fromML(row.getAs[org.apache.spark.ml.linalg.Vector]("features").toDense)
     ))
 
-    val Array(training, test) = labeledPointsRDD.randomSplit(Array(0.8, 0.2), seed = 11L)
+    var dataFraction = args(0).toFloat
+    println(s"Fraction of data being used: $dataFraction")
+    val labeledPointsRDDSample = labeledPointsRDD.sample(false, dataFraction, seed = 4)
+
+    val Array(training, test) = labeledPointsRDDSample.randomSplit(Array(0.8, 0.2), seed = 11L)
     training.cache()
 
     val t0 = System.nanoTime()
@@ -58,7 +62,8 @@ object ForestBinaryBatchClassification {
     // Set different values of the regularization parameters here
     // Create algorithm instance
     val lr = new LogisticRegressionWithSGD()
-    lr.optimizer.setRegParams(0.003, 0.001, 0.03, 0.01, 0.3, 0.1)
+//    lr.optimizer.setRegParams(0.003, 0.001, 0.03, 0.01, 0.3, 0.1, 1, 3, 10, 0.005, 0.05, 0.5, 0.25, 0.26, 0.27, 1.2, 0.015, 0.048)
+    lr.optimizer.setRegParams(0.003, 0.001, 0.01, 0.03, 0.1, 0.3, 0.7, 1, 3)
 
     // Train model
     val model = lr.run(training)
@@ -131,6 +136,7 @@ object ForestBinaryBatchClassification {
     val t1 = System.nanoTime()
     println("Elapsed time: " + (t1 - t0) + "ns")
 
+    println("Size of training set: ", training.count())
     sc.stop()
   }
 }

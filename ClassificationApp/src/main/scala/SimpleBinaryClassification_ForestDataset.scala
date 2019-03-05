@@ -14,6 +14,7 @@ import org.apache.spark.sql.Row
 import org.apache.spark.sql.types.{DoubleType, IntegerType}
 
 
+//
 object ForestBinaryClassification {
 
   def main(args: Array[String]): Unit = {
@@ -51,10 +52,16 @@ object ForestBinaryClassification {
       org.apache.spark.mllib.linalg.Vectors.fromML(row.getAs[org.apache.spark.ml.linalg.Vector]("features").toDense)
     ))
 
-    val Array(training, test) = labeledPointsRDD.randomSplit(Array(0.8, 0.2), seed = 11L)
+    var dataFraction = args(0).toFloat
+    println(s"Fraction of data being used: $dataFraction")
+
+    val labeledPointsRDDSample = labeledPointsRDD.sample(false, dataFraction, seed = 4)
+
+    val Array(training, test) = labeledPointsRDDSample.randomSplit(Array(0.8, 0.2), seed = 11L)
     training.cache()
 
-    val regParams = Array(0.001,0.01,0.1)
+//    val regParams = Array(0.003, 0.001, 0.03, 0.01, 0.3, 0.1, 1, 3, 10, 0.005, 0.05, 0.5, 0.25, 0.26, 0.27)
+    val regParams = Array(0.003, 0.001, 0.01, 0.03, 0.1, 0.3, 0.7, 1, 3)
 
     var totalTime: Long = 0
     var totalTrainingTime: Long = 0
@@ -138,6 +145,8 @@ object ForestBinaryClassification {
       // $example off$
     }
     println("Total time taken for all regularization values: " + totalTime + " " + totalTrainingTime)
+
+    println("Size of training set: ", training.count())
     sc.stop()
   }
 }
