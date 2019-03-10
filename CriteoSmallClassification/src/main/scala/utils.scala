@@ -29,8 +29,10 @@ object CriteoClassificationUtils {
   // 2. Fraction of the data to be used
   // 3. Fraction of the mini batch sizes
   // 4. Fraction of the features to be used
-  def parseConfig(args: Array[String]) : (String, Int, Double, Double, Double, Int) = {
+  def parseConfig(args: Array[String]) : (String, String, Int, Double, Double, Double, Int) = {
     var filePath: String =
+      "/Users/jigyayadav/Desktop/UCSDAcads/Quarter5/CSE291F/spark.nosync/spark/data/mllib/sample_libsvm_data.txt"
+    var testFilePath: String =
       "/Users/jigyayadav/Desktop/UCSDAcads/Quarter5/CSE291F/spark.nosync/spark/data/mllib/sample_libsvm_data.txt"
     var numRegParams: Int = 5
     var dataFraction = 1.0
@@ -41,27 +43,31 @@ object CriteoClassificationUtils {
       filePath = args(0).toString
     }
     if (args.size > 1) {
-      numRegParams = args(1).toInt
+      testFilePath = args(1).toString
     }
     if (args.size > 2) {
-      dataFraction = args(2).toDouble
+      numRegParams = args(2).toInt
     }
     if (args.size > 3) {
-      batchSizeFraction = args(3).toDouble
+      dataFraction = args(3).toDouble
     }
     if (args.size > 4) {
-      featuresFraction = args(4).toDouble
+      batchSizeFraction = args(4).toDouble
     }
     if (args.size > 5) {
-      maxNumFeatures = args(5).toInt
+      featuresFraction = args(5).toDouble
     }
-    println(s"Path of SVM file: $filePath")
+    if (args.size > 6) {
+      maxNumFeatures = args(6).toInt
+    }
+    println(s"Path of SVM train file: $filePath")
+    println(s"Path of SVM test file: $testFilePath")
     println(s"Number of regularization parameters: $numRegParams")
     println(s"Fraction of data being used: $dataFraction")
     println(s"Fraction for batch size being used: $batchSizeFraction")
     println(s"Fraction of features being used: $featuresFraction")
     println(s"Max number of features in the dataset: $maxNumFeatures")
-    (filePath, numRegParams, dataFraction, batchSizeFraction, featuresFraction, maxNumFeatures)
+    (filePath, testFilePath, numRegParams, dataFraction, batchSizeFraction, featuresFraction, maxNumFeatures)
   }
 
   // 50 values

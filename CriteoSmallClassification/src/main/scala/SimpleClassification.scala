@@ -31,25 +31,30 @@ object CriteoBinaryClassification {
     // $example on$
     // Load training data in LIBSVM format
 
-    val (filename, numRegParams, dataFraction, batchSizeFraction, featuresFraction, maxNumFeatures) =
+    val (filename, testFilePath, numRegParams, dataFraction, batchSizeFraction, featuresFraction, maxNumFeatures) =
       CriteoClassificationUtils.parseConfig(args)
 
     // TODO: Replace path of file here
-    var data: RDD[LabeledPoint] = null
+    var training: RDD[LabeledPoint] = null
+    var test: RDD[LabeledPoint] = null
     if (featuresFraction < 1.0) {
-      data = MLUtils.loadLibSVMFileLimitFeatures(sc,
+      training = MLUtils.loadLibSVMFileLimitFeatures(sc,
         filename,
         limitFeatures = true, maxFeaturesVal = (maxNumFeatures * featuresFraction).toInt)
+      test = MLUtils.loadLibSVMFileLimitFeatures(sc,
+        testFilePath,
+        limitFeatures = true, maxFeaturesVal = (maxNumFeatures * featuresFraction).toInt)
     } else {
-      data = MLUtils.loadLibSVMFile(sc, filename)
+      training = MLUtils.loadLibSVMFile(sc, filename)
+      test = MLUtils.loadLibSVMFile(sc, testFilePath)
     }
 
     // Modify the data according to the passed parameters
     val regParams = CriteoClassificationUtils.getRegParamValues(numRegParams)
 //    val regParams = Array(0.01)
-    val labeledPointsRDDSample = data.sample(false, dataFraction, seed = 4)
+    training = training.sample(false, dataFraction, seed = 4)
 
-    val Array(training, test) = labeledPointsRDDSample.randomSplit(Array(0.8, 0.2), seed = 11L)
+//    val Array(training, test) = labeledPointsRDDSample.randomSplit(Array(0.8, 0.2), seed = 11L)
     training.cache()
 
     var totalTime: Long = 0
