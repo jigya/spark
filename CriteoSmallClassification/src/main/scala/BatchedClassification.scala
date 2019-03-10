@@ -51,6 +51,7 @@ object CriteoBatchBinaryClassification {
     // Modify the data according to the passed parameters
     val regParams = CriteoClassificationUtils.getRegParamValues(numRegParams)
     training = training.sample(false, dataFraction, seed = 4)
+    test = test.sample(false, dataFraction, seed = 4)
 
     training.cache()
 
