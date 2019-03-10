@@ -72,8 +72,10 @@ object MLUtils extends Logging {
       sc: SparkContext,
       path: String,
       numFeatures: Int,
-      minPartitions: Int): RDD[LabeledPoint] = {
-    val parsed = parseLibSVMFile(sc, path, minPartitions)
+      minPartitions: Int,
+      limitFeatures: Boolean = false,
+      maxFeaturesVal: Int = 1000): RDD[LabeledPoint] = {
+    val parsed = parseLibSVMFile(sc, path, minPartitions, limitFeatures, maxFeaturesVal)
 
     // Determine number of features.
     val d = if (numFeatures > 0) {
@@ -83,6 +85,7 @@ object MLUtils extends Logging {
       computeNumFeatures(parsed)
     }
 
+    print(s"The number of features is: $d \n")
     parsed.map { case (label, indices, values) =>
       LabeledPoint(label, Vectors.sparse(d, indices, values))
     }
@@ -97,15 +100,20 @@ object MLUtils extends Logging {
   private[spark] def parseLibSVMFile(
       sc: SparkContext,
       path: String,
-      minPartitions: Int): RDD[(Double, Array[Int], Array[Double])] = {
+      minPartitions: Int,
+      useMaxFeatureVal: Boolean = false,
+      maxFeatureVal: Int = 1000): RDD[(Double, Array[Int], Array[Double])] = {
     sc.textFile(path, minPartitions)
       .map(_.trim)
       .filter(line => !(line.isEmpty || line.startsWith("#")))
-      .map(parseLibSVMRecord)
+      .map{
+        x => MLUtils.parseLibSVMRecord(x, useMaxFeatureVal, maxFeatureVal)
+      }
   }
 
   private[spark] def parseLibSVMFile(
-      sparkSession: SparkSession, paths: Seq[String]): RDD[(Double, Array[Int], Array[Double])] = {
+      sparkSession: SparkSession,
+      paths: Seq[String]): RDD[(Double, Array[Int], Array[Double])] = {
     val lines = sparkSession.baseRelationToDataFrame(
       DataSource.apply(
         sparkSession,
@@ -120,18 +128,31 @@ object MLUtils extends Logging {
       .filter(not((length($"line") === 0).or($"line".startsWith("#"))))
       .as[String]
       .rdd
-      .map(MLUtils.parseLibSVMRecord)
+      .map {
+        x => MLUtils.parseLibSVMRecord(x)
+      }
   }
 
-  private[spark] def parseLibSVMRecord(line: String): (Double, Array[Int], Array[Double]) = {
+  private[spark] def parseLibSVMRecord(
+      line: String,
+      useMaxFeatureVal: Boolean = false,
+      maxFeatureVal: Int = 1000): (Double, Array[Int], Array[Double]) = {
     val items = line.split(' ')
     val label = items.head.toDouble
     val (indices, values) = items.tail.filter(_.nonEmpty).map { item =>
       val indexAndValue = item.split(':')
       val index = indexAndValue(0).toInt - 1 // Convert 1-based indices to 0-based.
       val value = indexAndValue(1).toDouble
-      (index, value)
-    }.unzip
+      if (useMaxFeatureVal) {
+        if (index <= maxFeatureVal) {
+          (index, value)
+        } else {
+          null
+        }
+      } else {
+        (index, value)
+      }
+    }.filter(x => x != null).unzip
 
     // check if indices are one-based and in ascending order
     var previous = -1
@@ -163,8 +184,18 @@ object MLUtils extends Logging {
    * features determined automatically and the default number of partitions.
    */
   @Since("1.0.0")
-  def loadLibSVMFile(sc: SparkContext, path: String): RDD[LabeledPoint] =
+  def loadLibSVMFile(
+      sc: SparkContext,
+      path: String): RDD[LabeledPoint] =
     loadLibSVMFile(sc, path, -1)
+
+
+  def loadLibSVMFileLimitFeatures(
+      sc: SparkContext,
+      path: String,
+      limitFeatures: Boolean = false,
+      maxFeaturesVal: Int = 1000): RDD[LabeledPoint] =
+    loadLibSVMFile(sc, path, -1, sc.defaultMinPartitions, limitFeatures, maxFeaturesVal)
 
   /**
    * Save labeled data in LIBSVM format.
