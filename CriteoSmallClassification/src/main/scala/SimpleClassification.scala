@@ -23,7 +23,6 @@ object CriteoBinaryClassification {
 
   def main(args: Array[String]): Unit = {
     // This needs to be changed based on the dataset
-    val maxNumFeatures: Int = 1000000
 
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("akka").setLevel(Level.OFF)
@@ -32,17 +31,17 @@ object CriteoBinaryClassification {
     // $example on$
     // Load training data in LIBSVM format
 
-    val (numRegParams, dataFraction, batchSizeFraction, featuresFraction) = CriteoClassificationUtils.parseConfig(args)
+    val (filename, numRegParams, dataFraction, batchSizeFraction, featuresFraction, maxNumFeatures) =
+      CriteoClassificationUtils.parseConfig(args)
 
     // TODO: Replace path of file here
     var data: RDD[LabeledPoint] = null
     if (featuresFraction < 1.0) {
       data = MLUtils.loadLibSVMFileLimitFeatures(sc,
-        "/Users/jigyayadav/Desktop/UCSDAcads/Quarter5/CSE291F/spark.nosync/spark/data/mllib/sample_libsvm_data.txt",
+        filename,
         limitFeatures = true, maxFeaturesVal = (maxNumFeatures * featuresFraction).toInt)
     } else {
-      data = MLUtils.loadLibSVMFile(sc,
-        "/Users/jigyayadav/Desktop/UCSDAcads/Quarter5/CSE291F/spark.nosync/spark/data/mllib/sample_libsvm_data.txt")
+      data = MLUtils.loadLibSVMFile(sc, filename)
     }
 
     // Modify the data according to the passed parameters

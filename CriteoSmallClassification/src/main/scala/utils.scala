@@ -29,28 +29,39 @@ object CriteoClassificationUtils {
   // 2. Fraction of the data to be used
   // 3. Fraction of the mini batch sizes
   // 4. Fraction of the features to be used
-  def parseConfig(args: Array[String]) : (Int, Double, Double, Double) = {
+  def parseConfig(args: Array[String]) : (String, Int, Double, Double, Double, Int) = {
+    var filePath: String =
+      "/Users/jigyayadav/Desktop/UCSDAcads/Quarter5/CSE291F/spark.nosync/spark/data/mllib/sample_libsvm_data.txt"
     var numRegParams: Int = 5
     var dataFraction = 1.0
     var batchSizeFraction = 1.0
     var featuresFraction = 1.0
+    var maxNumFeatures: Int = 1000000
     if (args.size > 0) {
-      numRegParams = args(0).toInt
+      filePath = args(0).toString
     }
     if (args.size > 1) {
-      dataFraction = args(1).toDouble
+      numRegParams = args(1).toInt
     }
     if (args.size > 2) {
-      batchSizeFraction = args(2).toDouble
+      dataFraction = args(2).toDouble
     }
     if (args.size > 3) {
-      featuresFraction = args(3).toDouble
+      batchSizeFraction = args(3).toDouble
     }
+    if (args.size > 4) {
+      featuresFraction = args(4).toDouble
+    }
+    if (args.size > 5) {
+      maxNumFeatures = args(5).toInt
+    }
+    println(s"Path of SVM file: $filePath")
     println(s"Number of regularization parameters: $numRegParams")
     println(s"Fraction of data being used: $dataFraction")
     println(s"Fraction for batch size being used: $batchSizeFraction")
     println(s"Fraction of features being used: $featuresFraction")
-    (numRegParams, dataFraction, batchSizeFraction, featuresFraction)
+    println(s"Max number of features in the dataset: $maxNumFeatures")
+    (filePath, numRegParams, dataFraction, batchSizeFraction, featuresFraction, maxNumFeatures)
   }
 
   // 50 values
