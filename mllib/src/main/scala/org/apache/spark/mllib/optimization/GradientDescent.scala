@@ -288,10 +288,10 @@ object GradientDescent extends Logging {
         if (previousWeights != None && currentWeights != None) {
           converged = isConverged(previousWeights.get,
             currentWeights.get, convergenceTol)
-        }
-        if (converged) {
-          var msg1 = printf("We converged after %d\n", i)
-          log.warn(msg1)
+          if (converged) {
+            var msg1 = printf("We converged after %d\n", i)
+            log.warn(msg1)
+          }
         }
       } else {
         logWarning(s"Iteration ($i/$numIterations). The size of sampled batch is zero")
